@@ -267,18 +267,47 @@ def _apply_common_filters(query, flt: StatsFilters):
     return query
 
 
+def _query_sessions_for_period(flt: StatsFilters, date_from: Optional[date], date_to: Optional[date]):
+    query = db.session.query(SessionActivite, AtelierActivite).join(
+        AtelierActivite, AtelierActivite.id == SessionActivite.atelier_id
+    )
+    query = query.filter(SessionActivite.is_deleted.is_(False))
+    query = query.filter(AtelierActivite.is_deleted.is_(False))
+
+    eff_secteur = _resolve_secteur_scope(flt)
+    if eff_secteur:
+        query = query.filter(AtelierActivite.secteur == eff_secteur)
+
+    if flt.atelier_id:
+        query = query.filter(AtelierActivite.id == flt.atelier_id)
+
+    if date_from:
+        query = query.filter(_session_date_expr() >= date_from)
+    if date_to:
+        query = query.filter(_session_date_expr() <= date_to)
+
+    return query
+
+
 # ---------------------------
 # Main compute (Phase 1)
 # ---------------------------
 
 def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
-    base = db.session.query(SessionActivite, AtelierActivite).join(
-        AtelierActivite, AtelierActivite.id == SessionActivite.atelier_id
-    )
-    base = _apply_common_filters(base, flt)
-
-    sessions_rows: List[Tuple[SessionActivite, AtelierActivite]] = base.all()
+    sessions_rows: List[Tuple[SessionActivite, AtelierActivite]] = _query_sessions_for_period(
+        flt, flt.date_from, flt.date_to
+    ).all()
     session_ids = [s.id for s, _ in sessions_rows]
+
+    previous_atelier_ids: Optional[Set[int]] = None
+    if flt.date_from and flt.date_to and flt.date_to >= flt.date_from:
+        span_days = (flt.date_to - flt.date_from).days + 1
+        prev_end = flt.date_from - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=span_days - 1) if span_days > 0 else prev_end
+        prev_rows: List[Tuple[SessionActivite, AtelierActivite]] = _query_sessions_for_period(
+            flt, prev_start, prev_end
+        ).all()
+        previous_atelier_ids = {a.id for _, a in prev_rows}
 
     if session_ids:
         presences: List[PresenceActivite] = (
@@ -452,9 +481,43 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
                 "uniques": len(obj["uniques"]),
                 "hours_animator": round(float(obj["hours_animator"]), 2),
                 "hours_people": round(float(obj["hours_people"]), 2),
+                "is_new_vs_previous": bool(previous_atelier_ids is not None and aid not in previous_atelier_ids),
             }
         )
     table_ateliers.sort(key=lambda r: (r["presences"], r["sessions"]), reverse=True)
+
+    top_ateliers = table_ateliers[:3]
+
+    sectors_agg: Dict[str, Dict[str, Any]] = {}
+    for row in table_ateliers:
+        sect = row["secteur"] or "(Non renseigné)"
+        if sect not in sectors_agg:
+            sectors_agg[sect] = {
+                "secteur": sect,
+                "sessions": 0,
+                "presences": 0,
+                "uniques": 0,
+                "hours_animator": 0.0,
+                "hours_people": 0.0,
+            }
+        sectors_agg[sect]["sessions"] += row["sessions"]
+        sectors_agg[sect]["presences"] += row["presences"]
+        sectors_agg[sect]["uniques"] += row["uniques"]
+        sectors_agg[sect]["hours_animator"] += float(row["hours_animator"])
+        sectors_agg[sect]["hours_people"] += float(row["hours_people"])
+
+    sectors_summary = [
+        {
+            "secteur": v["secteur"],
+            "sessions": int(v["sessions"]),
+            "presences": int(v["presences"]),
+            "uniques": int(v["uniques"]),
+            "hours_animator": round(float(v["hours_animator"]), 2),
+            "hours_people": round(float(v["hours_people"]), 2),
+        }
+        for v in sectors_agg.values()
+    ]
+    sectors_summary.sort(key=lambda r: (r["presences"], r["sessions"]), reverse=True)
 
     return {
         "kpi": {
@@ -470,6 +533,9 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
         "time_series": time_series,
         "heatmap": {"days": days, "buckets": bucket_labels, "data": heat},
         "table_ateliers": table_ateliers,
+        "top_ateliers": top_ateliers,
+        "sectors_summary": sectors_summary,
+        "has_previous_period": previous_atelier_ids is not None,
     }
 
 
