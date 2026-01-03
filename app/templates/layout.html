@@ -130,9 +130,14 @@
       background: color-mix(in srgb, var(--surface) 70%, transparent);
       cursor:pointer;
       user-select:none;
+      transition:border-color .15s ease, background .15s ease;
     }
 
     .pill:hover{ border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+    .pill.active{
+      border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+      background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    }
 
     .right{ margin-left:auto; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 
@@ -219,6 +224,7 @@
     }
 
     label{ font-size:13px; color:var(--muted); display:block; margin-bottom:6px; }
+    .help{ color:var(--muted); font-size:12px; margin-top:4px; }
 
     .row{ display:grid; gap:10px; grid-template-columns:1fr; }
     .row.two{ grid-template-columns:1fr; }
@@ -275,6 +281,7 @@
       font-size:13px;
       background: var(--surface-soft);
     }
+    thead th{ position:sticky; top:0; z-index:1; }
 
     /* Inputs */
     .in{
@@ -302,7 +309,8 @@
   </style>
 </head>
 
-<body>
+  <body>
+  {% set ep = request.endpoint or '' %}
   <div class="topbar">
     <div class="wrap">
       <div class="nav">
@@ -310,19 +318,20 @@
 
         {% if current_user.is_authenticated %}
           {% if current_user.role != "admin_tech" %}
-            <a class="pill" href="{{ url_for('main.dashboard') }}">Dashboard</a>
-            <a class="pill" href="{{ url_for('main.subventions_list') }}">Subventions</a>
-            <a class="pill" href="{{ url_for('budget.depense_new') }}">Nouvelle dépense</a>
-			<a class="pill" href="{{ url_for('budget.depenses_list') }}">Dépenses</a>
-            <a class="pill" href="{{ url_for('projets.projets_list') }}">Projets</a>
-            <a class="pill" href="{{ url_for('activite.index') }}">Émargement</a>
-			<a class="pill" href="{{ url_for('main.bilan_global') }}">Bilan</a>
-            <a class="pill" href="{{ url_for('main.stats') }}">Stats</a>
-            <a class="pill" href="{{ url_for('main.controle') }}">Contrôle</a>
+            <a class="pill {% if ep.startswith('main.dashboard') %}active{% endif %}" href="{{ url_for('main.dashboard') }}">Dashboard</a>
+            <a class="pill {% if ep.startswith('main.subventions') %}active{% endif %}" href="{{ url_for('main.subventions_list') }}">Subventions</a>
+            <a class="pill {% if ep.startswith('budget.depense_new') %}active{% endif %}" href="{{ url_for('budget.depense_new') }}">Nouvelle dépense</a>
+			<a class="pill {% if ep.startswith('budget.depenses_list') %}active{% endif %}" href="{{ url_for('budget.depenses_list') }}">Dépenses</a>
+            <a class="pill {% if ep.startswith('projets.') %}active{% endif %}" href="{{ url_for('projets.projets_list') }}">Projets</a>
+            <a class="pill {% if ep.startswith('activite.') %}active{% endif %}" href="{{ url_for('activite.index') }}">Émargement</a>
+			<a class="pill {% if ep.startswith('main.bilan_global') %}active{% endif %}" href="{{ url_for('main.bilan_global') }}">Bilan</a>
+            <a class="pill {% if ep.startswith('main.stats') %}active{% endif %}" href="{{ url_for('main.stats') }}">Stats</a>
+            <a class="pill {% if ep.startswith('statsimpact.') %}active{% endif %}" href="{{ url_for('statsimpact.dashboard') }}">Stats &amp; Impact</a>
+            <a class="pill {% if ep.startswith('main.controle') %}active{% endif %}" href="{{ url_for('main.controle') }}">Contrôle</a>
           {% else %}
-            <a class="pill" href="{{ url_for('main.dashboard') }}">Dashboard</a>
-            <a class="pill" href="{{ url_for('admin.users') }}">Équipe</a>
-            <a class="pill" href="{{ url_for('main.controle') }}">Contrôle</a>
+            <a class="pill {% if ep.startswith('main.dashboard') %}active{% endif %}" href="{{ url_for('main.dashboard') }}">Dashboard</a>
+            <a class="pill {% if ep.startswith('admin.users') %}active{% endif %}" href="{{ url_for('admin.users') }}">Équipe</a>
+            <a class="pill {% if ep.startswith('main.controle') %}active{% endif %}" href="{{ url_for('main.controle') }}">Contrôle</a>
           {% endif %}
 
           <div class="right">
