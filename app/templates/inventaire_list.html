@@ -1,0 +1,67 @@
+{% extends "layout.html" %}
+{% block body %}
+  <div class="stack">
+    <div class="inline">
+      <h1 style="margin:0">Inventaire</h1>
+      <a class="btn ok" href="{{ url_for('inventaire_materiel.new_item') }}">➕ Nouvelle entrée</a>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">Liste</h2>
+      <p class="muted">Ici, on suit le matériel (même en mode "quantité" pour l’instant). C’est une aide de terrain : tu peux corriger après.</p>
+
+      <form class="inline" method="get" action="{{ url_for('inventaire_materiel.list_items') }}" style="gap:8px; flex-wrap:wrap">
+        <input type="text" name="secteur" placeholder="Filtre secteur" value="{{ filtre_secteur }}" style="max-width:220px">
+        <input type="text" name="etat" placeholder="Filtre état (OK, HS...)" value="{{ filtre_etat }}" style="max-width:220px">
+        <button class="btn" type="submit">Filtrer</button>
+        <a class="btn" href="{{ url_for('inventaire_materiel.list_items') }}">Reset</a>
+      </form>
+
+      <div class="tablewrap" style="margin-top:12px">
+        <table>
+          <thead>
+            <tr>
+              <th>ID interne</th>
+              <th>Secteur</th>
+              <th>Catégorie</th>
+              <th>Désignation</th>
+              <th>Qté</th>
+              <th>État</th>
+              <th>Localisation</th>
+              <th>Valeur</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in items %}
+              <tr>
+                <td><strong>{{ it.id_interne or ('#' ~ it.id) }}</strong></td>
+                <td>{{ it.secteur }}</td>
+                <td>{{ it.categorie or "—" }}</td>
+                <td>
+                  <strong>{{ it.designation }}</strong>
+                  {% if it.marque or it.modele %}
+                    <div class="muted" style="font-size:12px">{{ it.marque or "" }} {{ it.modele or "" }}</div>
+                  {% endif %}
+                  {% if it.numero_serie %}
+                    <div class="muted" style="font-size:12px">S/N: {{ it.numero_serie }}</div>
+                  {% endif %}
+                </td>
+                <td>{{ it.quantite }}</td>
+                <td><span class="badge">{{ it.etat }}</span></td>
+                <td>{{ it.localisation or "—" }}</td>
+                <td>{% if it.valeur_unitaire is not none %}{{ "%.2f"|format(it.valeur_unitaire) }} €{% else %}—{% endif %}</td>
+                <td style="text-align:right">
+                  <a class="btn" href="{{ url_for('inventaire_materiel.edit_item', item_id=it.id) }}">Ouvrir</a>
+                </td>
+              </tr>
+            {% endfor %}
+            {% if not items %}
+              <tr><td colspan="9" class="muted">Aucune entrée inventaire pour l’instant.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}

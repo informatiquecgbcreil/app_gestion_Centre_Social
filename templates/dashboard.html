@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+{% block body %}
+
+<div class="stack">
+  <div class="card">
+    <h1>Dashboard</h1>
+
+    {% if mode == "admin_tech" %}
+      <p>Tu es admin_tech : tu gères l’équipe, sans accès budget.</p>
+      <a class="btn" href="{{ url_for('admin.users') }}">Gérer l’équipe</a>
+    {% else %}
+      <p>Accès selon ton rôle / secteur.</p>
+
+      {% if alertes_bilan and alertes_bilan|length %}
+        <div class="spacer"></div>
+        <h3>Alertes (lecture)</h3>
+        <ul>
+          {% for a in alertes_bilan %}
+            <li class="muted">{{ a }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% if mode != "admin_tech" %}
+    <div class="card">
+      <h2>Subventions</h2>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Année</th><th>Secteur</th><th>Nom</th>
+              <th>Demandé</th><th>Attribué</th><th>Reçu</th>
+              <th>Lignes réel</th><th>Engagé</th><th>Reste</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for s in subs %}
+            <tr>
+              <td>{{ s.annee_exercice }}</td>
+              <td>{{ s.secteur }}</td>
+              <td><strong>{{ s.nom }}</strong></td>
+              <td>{{ "%.2f"|format(s.montant_demande or 0) }}€</td>
+              <td>{{ "%.2f"|format(s.montant_attribue or 0) }}€</td>
+              <td>{{ "%.2f"|format(s.montant_recu or 0) }}€</td>
+              <td>{{ "%.2f"|format(s.total_reel_lignes or 0) }}€</td>
+              <td>{{ "%.2f"|format(s.total_engage or 0) }}€</td>
+              <td>{{ "%.2f"|format(s.total_reste or 0) }}€</td>
+              <td><a class="btn" href="{{ url_for('main.subvention_pilotage', subvention_id=s.id) }}">Pilotage</a></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="spacer"></div>
+      <a class="btn" href="{{ url_for('main.subventions_list') }}">Voir / créer des subventions</a>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

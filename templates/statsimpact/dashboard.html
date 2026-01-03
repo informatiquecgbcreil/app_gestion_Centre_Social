@@ -1,0 +1,360 @@
+{% extends "layout.html" %}
+
+{% block body %}
+  <div class="stack">
+    <div class="card">
+      <h1>Stats &amp; Impact</h1>
+      <p>Mode <b>Volume &amp; activité</b> — dashboard + détails. (Les autres onglets arrivent.)</p>
+
+      <form method="get" class="row three" style="margin-top:12px;">
+        <div>
+          <label for="date_from">Du</label>
+          <input id="date_from" name="date_from" type="date" value="{{ flt.date_from }}">
+        </div>
+        <div>
+          <label for="date_to">Au</label>
+          <input id="date_to" name="date_to" type="date" value="{{ flt.date_to }}">
+        </div>
+
+        <div>
+          <label for="mode">Collectif / Individuel</label>
+          <select id="mode" name="mode">
+            <option value="ALL" {% if flt.mode=='ALL' %}selected{% endif %}>Tous</option>
+            <option value="COLLECTIF" {% if flt.mode=='COLLECTIF' %}selected{% endif %}>Collectif</option>
+            <option value="INDIVIDUEL" {% if flt.mode=='INDIVIDUEL' %}selected{% endif %}>Individuel</option>
+          </select>
+        </div>
+
+        {% if secteurs and current_user.role != 'responsable_secteur' %}
+        <div>
+          <label for="secteur">Secteur</label>
+          <select id="secteur" name="secteur">
+            <option value="">Tous</option>
+            {% for s in secteurs %}
+              <option value="{{ s }}" {% if flt.secteur==s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+        <div>
+          <label for="atelier_id">Atelier</label>
+          <select id="atelier_id" name="atelier_id">
+            <option value="">Tous</option>
+            {% for a in ateliers %}
+              <option value="{{ a.id }}" {% if flt.atelier_id==a.id %}selected{% endif %}>{{ a.secteur }} · {{ a.nom }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label for="uniques_mode">Uniques / Occurrences</label>
+          <select id="uniques_mode" name="uniques_mode">
+            <option value="BOTH" {% if flt.uniques_mode=='BOTH' %}selected{% endif %}>Afficher les deux</option>
+            <option value="UNIQUES" {% if flt.uniques_mode=='UNIQUES' %}selected{% endif %}>Uniques</option>
+            <option value="OCCURRENCES" {% if flt.uniques_mode=='OCCURRENCES' %}selected{% endif %}>Occurrences</option>
+          </select>
+        </div>
+
+        <div class="inline" style="align-items:end;">
+          <button class="btn ok" type="submit">Appliquer</button>
+          <a class="btn" href="{{ url_for('statsimpact.dashboard') }}">Reset</a>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="inline" style="justify-content:space-between; align-items:flex-end;">
+        <div>
+          <h2>Dashboard — Volume &amp; activité</h2>
+          <p class="muted">Clique une tuile pour “focus” (bientôt : changement des graphes). Pour l’instant : lecture rapide + détails.</p>
+        </div>
+        <div class="tag">Période : {{ flt.date_from }} → {{ flt.date_to }}</div>
+      </div>
+
+      <div class="kpi" style="margin-top:12px;">
+        <div class="box" title="Nombre de sessions réalisées sur la période">
+          <div class="muted">Sessions réalisées</div>
+          <div class="v">{{ stats.kpi.sessions }}</div>
+        </div>
+        <div class="box" title="Total des émargements (occurrences)">
+          <div class="muted">Présences (occ.)</div>
+          <div class="v">{{ stats.kpi.presences }}</div>
+        </div>
+        <div class="box" title="Participants différents sur la période">
+          <div class="muted">Participants uniques</div>
+          <div class="v">{{ stats.kpi.uniques }}</div>
+        </div>
+        <div class="box" title="Première venue dans le système sur la période (tous secteurs)">
+          <div class="muted">Nouveaux participants</div>
+          <div class="v">{{ stats.kpi.new_participants }}</div>
+        </div>
+        <div class="box" title="Heures d’animation (temps de séance, sans multiplier par les présents)">
+          <div class="muted">Heures animateur</div>
+          <div class="v">{{ stats.kpi.hours_animator }}</div>
+        </div>
+        <div class="box" title="Heures-personnes : durée × présents (collectif). Indiv = durée du RDV.">
+          <div class="muted">Heures-personnes</div>
+          <div class="v">{{ stats.kpi.hours_people }}</div>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="grid two">
+        <div class="card" style="background:rgba(255,255,255,.03);">
+          <h3>Évolution ({{ (flt.group_by or 'MONTH')|upper }})</h3>
+          <div class="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Mois</th>
+                  <th>Sessions</th>
+                  <th>Présences</th>
+                  <th>Uniques</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for m in (stats.time_series if stats.time_series is defined else stats.monthly_series) %}
+                  <tr>
+                    <td><b>{{ m.label }}</b></td>
+                    <td>{{ m.sessions }}</td>
+                    <td>{{ m.presences }}</td>
+                    <td>{{ m.uniques }}</td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="4" class="muted">Aucune donnée sur la période.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="background:rgba(255,255,255,.03);">
+          <h3>Heatmap (sessions par jour/créneau)</h3>
+          <p class="muted">Basée sur l’heure de début (si renseignée). Si pas d’heure, pas de case.</p>
+          <div class="tablewrap">
+            <table style="min-width:680px;">
+              <thead>
+                <tr>
+                  <th>Jour</th>
+                  {% for b in stats.heatmap.buckets %}
+                    <th>{{ b }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for d in stats.heatmap.days %}
+                  <tr>
+                    <td><b>{{ d }}</b></td>
+                    {% for b in stats.heatmap.buckets %}
+                      {% set v = stats.heatmap.data[d][b] %}
+                      <td>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                          <div style="flex:1; height:10px; border-radius:999px; border:1px solid rgba(255,255,255,.10); overflow:hidden;">
+                            <div style="height:100%; width:{{ 5 + (v*12) }}px; background:rgba(106,165,255,.55);"></div>
+                          </div>
+                          <div style="width:22px; text-align:right;" class="muted">{{ v }}</div>
+                        </div>
+                      </td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="inline" style="justify-content:space-between;">
+        <h2>Détails — par atelier</h2>
+        <div class="tag">Moyenne par séance (global) : {{ stats.kpi.avg_per_session }}</div>
+      </div>
+      <div class="tablewrap" style="margin-top:10px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Secteur</th>
+              <th>Atelier</th>
+              <th>Type</th>
+              <th>Sessions</th>
+              <th>Présences</th>
+              <th>Uniques</th>
+              <th>Moy./séance</th>
+              <th>Heures animateur</th>
+              <th>Heures-personnes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in stats.table_ateliers %}
+              <tr>
+                <td>{{ r.secteur }}</td>
+                <td>
+                  <a class="pill" href="{{ url_for('statsimpact.dashboard', date_from=flt.date_from, date_to=flt.date_to, mode=flt.mode, secteur=flt.secteur, atelier_id=r.atelier_id) }}">{{ r.nom }}</a>
+                </td>
+                <td class="muted">{{ r.type_atelier }}</td>
+                <td>{{ r.sessions }}</td>
+                <td>{{ r.presences }}</td>
+                <td>{{ r.uniques }}</td>
+                <td>{{ r.avg_per_session }}</td>
+                <td>{{ r.hours_animator }}</td>
+                <td>{{ r.hours_people }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="9" class="muted">Aucune donnée.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin-top:10px;">Prochaine étape : “Remplissage / capacité” (taux d’occupation, sessions pleines/vides, variance…).</p>
+    </div>
+
+    <div class="grid two">
+      <div class="card" style="background:rgba(255,255,255,.03);">
+        <h2>Participation &amp; fidélisation</h2>
+        <div class="kpi" style="margin-top:10px;">
+          <div class="box">
+            <div class="muted">Fréquence moyenne</div>
+            <div class="v">{{ freq.avg_freq }}</div>
+          </div>
+          <div class="box">
+            <div class="muted">Taux de retour (≥2)</div>
+            <div class="v">{{ freq.returning_rate }}%</div>
+          </div>
+          <div class="box">
+            <div class="muted">Réguliers (≥4)</div>
+            <div class="v">{{ freq.regulars_count }}</div>
+          </div>
+        </div>
+
+        <div class="tablewrap" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr><th>Fréquence</th><th>Participants</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1 venue</td><td>{{ freq.buckets["1"] }}</td></tr>
+              <tr><td>2–3 venues</td><td>{{ freq.buckets["2-3"] }}</td></tr>
+              <tr><td>4–6 venues</td><td>{{ freq.buckets["4-6"] }}</td></tr>
+              <tr><td>7+ venues</td><td>{{ freq.buckets["7+"] }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="background:rgba(255,255,255,.03);">
+        <h2>Transversalité</h2>
+        <p class="muted">Toujours en agrégé : aucun nom, que des recoupements.</p>
+        <div class="kpi" style="margin-top:10px;">
+          <div class="box">
+            <div class="muted">Uniques (scope)</div>
+            <div class="v">{{ trans.uniques }}</div>
+          </div>
+          <div class="box">
+            <div class="muted">Multi-secteurs</div>
+            <div class="v">{{ trans.multi_count }}</div>
+          </div>
+          <div class="box">
+            <div class="muted">Taux multi</div>
+            <div class="v">{{ trans.multi_rate }}%</div>
+          </div>
+        </div>
+
+        {% if trans.sector_scope and trans.top_cross and trans.top_cross|length > 0 %}
+          <div class="tablewrap" style="margin-top:12px;">
+            <table>
+              <thead>
+                <tr><th>Secteur croisé</th><th>Participants en commun</th></tr>
+              </thead>
+              <tbody>
+                {% for row in trans.top_cross %}
+                  <tr><td>{{ row.secteur }}</td><td>{{ row.participants_communs }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted" style="margin-top:10px;">Pas de top secteurs croisés (soit scope global, soit aucun croisement sur la période).</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="inline" style="justify-content:space-between; align-items:flex-end;">
+        <div>
+          <h2>Démographie</h2>
+          <p class="muted">Basé sur les <b>participants uniques</b> de la période (si les champs sont renseignés).</p>
+        </div>
+        <div class="tag">Âge moyen : {% if demo.age_avg is not none %}{{ demo.age_avg }}{% else %}ND{% endif %}</div>
+      </div>
+
+      <div class="grid two" style="margin-top:12px;">
+        <div class="card" style="background:rgba(255,255,255,.03);">
+          <h3>Tranches d’âge</h3>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Tranche</th><th>Nb</th></tr></thead>
+              <tbody>
+                {% for k, v in demo.age_buckets.items() %}
+                  <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="background:rgba(255,255,255,.03);">
+          <h3>Genre</h3>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Genre</th><th>Nb</th></tr></thead>
+              <tbody>
+                {% for k, v in demo.genre.items() %}
+                  <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid two" style="margin-top:12px;">
+        <div class="card" style="background:rgba(255,255,255,.03);">
+          <h3>Territoire</h3>
+          <ul>
+            <li><b>Creil</b> : {{ demo.creil.creil }} — <b>Hors Creil</b> : {{ demo.creil.hors_creil }}</li>
+            <li><b>QPV</b> : {{ demo.qpv.qpv }} — <b>Hors QPV</b> : {{ demo.qpv.hors_qpv }} — <b>Inconnu</b> : {{ demo.qpv.inconnu }}</li>
+          </ul>
+          <h3 style="margin-top:10px;">Type de public</h3>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Type</th><th>Nb</th></tr></thead>
+              <tbody>
+                {% for k, v in demo.type_public.items() %}
+                  <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="background:rgba(255,255,255,.03);">
+          <h3>Villes (Top 10)</h3>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Ville</th><th>Nb</th></tr></thead>
+              <tbody>
+                {% for row in demo.villes_top %}
+                  <tr><td>{{ row.ville }}</td><td>{{ row.count }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+{% endblock %}

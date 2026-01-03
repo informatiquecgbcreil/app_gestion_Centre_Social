@@ -1,0 +1,126 @@
+{% extends "layout.html" %}
+{% block body %}
+
+<div class="stack">
+
+  <div class="card">
+    <div class="inline" style="justify-content:space-between;">
+      <div>
+        <h1>Projet</h1>
+        <p><strong>{{ projet.nom }}</strong> · {{ projet.secteur }}</p>
+      </div>
+      <div class="inline">
+        <a class="btn" href="{{ url_for('projets.projets_list') }}">Retour</a>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="kpi">
+      <div class="box"><div class="muted">Demandé</div><div class="v">{{ "%.2f"|format(projet.total_demande or 0) }}€</div></div>
+      <div class="box"><div class="muted">Attribué</div><div class="v">{{ "%.2f"|format(projet.total_attribue or 0) }}€</div></div>
+      <div class="box"><div class="muted">Reçu</div><div class="v">{{ "%.2f"|format(projet.total_recu or 0) }}€</div></div>
+      <div class="box"><div class="muted">Lignes réel</div><div class="v">{{ "%.2f"|format(projet.total_reel_lignes or 0) }}€</div></div>
+      <div class="box"><div class="muted">Engagé</div><div class="v">{{ "%.2f"|format(projet.total_engage or 0) }}€</div></div>
+      <div class="box"><div class="muted">Reste</div><div class="v">{{ "%.2f"|format(projet.total_reste or 0) }}€</div></div>
+    </div>
+  </div>
+
+  <div class="grid two">
+    <div class="card">
+      <h2>Infos projet</h2>
+      <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="update">
+
+        <div class="row">
+          <div>
+            <label>Nom</label>
+            <input name="nom" value="{{ projet.nom }}" required>
+          </div>
+          <div>
+            <label>Description</label>
+            <textarea name="description" rows="7">{{ projet.description or "" }}</textarea>
+          </div>
+        </div>
+
+        <div class="spacer"></div>
+        <button class="btn ok" type="submit">Enregistrer</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Compte-rendu (CR)</h2>
+      <p class="muted">Formats : pdf / doc / docx / odt</p>
+
+      {% if projet.cr_filename %}
+        <div class="flash success">
+          CR présent : <strong>{{ projet.cr_original_name or projet.cr_filename }}</strong>
+          <div class="spacer"></div>
+          <a class="btn" href="{{ url_for('projets.projets_cr_download', projet_id=projet.id) }}">Télécharger</a>
+        </div>
+        <div class="spacer"></div>
+      {% else %}
+        <div class="flash warning">Aucun CR pour l’instant.</div>
+        <div class="spacer"></div>
+      {% endif %}
+
+      <form method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="upload_cr">
+        <input type="file" name="cr_file" required>
+        <div class="spacer"></div>
+        <button class="btn ok" type="submit">Uploader</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Lier des subventions</h2>
+    <p class="muted">Uniquement des subventions du même secteur.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Année</th>
+            <th>Subvention</th>
+            <th>Reçu</th>
+            <th>Engagé</th>
+            <th>Reste</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in subs %}
+            <tr>
+              <td>{{ s.annee_exercice }}</td>
+              <td><strong>{{ s.nom }}</strong></td>
+              <td>{{ "%.2f"|format(s.montant_recu or 0) }}€</td>
+              <td>{{ "%.2f"|format(s.total_engage or 0) }}€</td>
+              <td>{{ "%.2f"|format(s.total_reste or 0) }}€</td>
+              <td>
+                <form method="POST">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="toggle_subvention">
+                  <input type="hidden" name="subvention_id" value="{{ s.id }}">
+                  {% if s.id in linked %}
+                    <button class="btn warn" type="submit">Délier</button>
+                  {% else %}
+                    <button class="btn ok" type="submit">Lier</button>
+                  {% endif %}
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          {% if subs|length == 0 %}
+            <tr><td colspan="6" class="muted">Aucune subvention disponible pour ce secteur.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

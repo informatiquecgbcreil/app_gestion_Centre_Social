@@ -1,0 +1,656 @@
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from flask_login import current_user
+from sqlalchemy import func
+
+from app.extensions import db
+from app.models import AtelierActivite, PresenceActivite, SessionActivite, PeriodeFinancement, Participant
+
+
+# ---------------------------
+# Helpers: parsing & labeling
+# ---------------------------
+
+def _parse_date(s: str) -> Optional[date]:
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _parse_time_minutes(t: Optional[str]) -> Optional[int]:
+    """
+    Accepts formats like: "14:30", "14h30", "14h", "14:30:00".
+    Returns minutes since midnight.
+    """
+    if not t:
+        return None
+    s = str(t).strip().lower()
+    s = s.replace(" ", "")
+    s = s.replace("h", ":")
+    if s.endswith(":"):
+        s += "00"
+    try:
+        parts = s.split(":")
+        if len(parts) == 1:
+            hh = int(parts[0])
+            mm = 0
+        else:
+            hh = int(parts[0])
+            mm = int(parts[1]) if parts[1] else 0
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return hh * 60 + mm
+    except Exception:
+        return None
+    return None
+
+
+def _month_label(y: int, m: int) -> str:
+    return f"{y}-{m:02d}"
+
+
+def _quarter_label(y: int, q: int) -> str:
+    return f"{y}-Q{q}"
+
+
+def _group_label(d: date, group_by: str) -> Tuple[Tuple[int, int, int], str]:
+    """
+    Returns (sort_key, label) for a date given a grouping.
+    sort_key is used to sort labels in chronological order.
+    """
+    gb = (group_by or "MONTH").upper()
+    if gb == "DAY":
+        return (d.year, d.month, d.day), d.strftime("%Y-%m-%d")
+    if gb == "YEAR":
+        return (d.year, 0, 0), f"{d.year}"
+    if gb == "QUARTER":
+        q = (d.month - 1) // 3 + 1
+        return (d.year, q, 0), _quarter_label(d.year, q)
+    # default MONTH
+    return (d.year, d.month, 0), _month_label(d.year, d.month)
+
+
+def _apply_preset(preset: str, today: Optional[date] = None) -> Tuple[date, date]:
+    """
+    Returns (date_from, date_to) for a preset.
+    date_to is inclusive.
+    """
+    p = (preset or "").upper().strip()
+    t = today or date.today()
+
+    if p == "TODAY":
+        return t, t
+    if p == "YESTERDAY":
+        y = t - timedelta(days=1)
+        return y, y
+
+    if p in ("THIS_MONTH", "MONTH_THIS"):
+        start = date(t.year, t.month, 1)
+        next_month = start.replace(day=28) + timedelta(days=4)
+        end = next_month - timedelta(days=next_month.day)
+        return start, end
+
+    if p in ("PREV_MONTH", "MONTH_PREV", "LAST_MONTH"):
+        start_this = date(t.year, t.month, 1)
+        end_prev = start_this - timedelta(days=1)
+        start_prev = date(end_prev.year, end_prev.month, 1)
+        return start_prev, end_prev
+
+    if p in ("THIS_YEAR", "YEAR_THIS"):
+        return date(t.year, 1, 1), date(t.year, 12, 31)
+
+    if p in ("PREV_YEAR", "YEAR_PREV", "LAST_YEAR"):
+        y = t.year - 1
+        return date(y, 1, 1), date(y, 12, 31)
+
+    if p in ("THIS_QUARTER", "QUARTER_THIS"):
+        q = (t.month - 1) // 3 + 1
+        start_month = (q - 1) * 3 + 1
+        start = date(t.year, start_month, 1)
+        end_month = start_month + 2
+        end_base = date(t.year, end_month, 1)
+        next_month = end_base.replace(day=28) + timedelta(days=4)
+        end = next_month - timedelta(days=next_month.day)
+        return start, end
+
+    if p in ("PREV_QUARTER", "QUARTER_PREV", "LAST_QUARTER"):
+        q = (t.month - 1) // 3 + 1
+        y = t.year
+        q_prev = q - 1
+        if q_prev <= 0:
+            q_prev = 4
+            y -= 1
+        start_month = (q_prev - 1) * 3 + 1
+        start = date(y, start_month, 1)
+        end_month = start_month + 2
+        end_base = date(y, end_month, 1)
+        next_month = end_base.replace(day=28) + timedelta(days=4)
+        end = next_month - timedelta(days=next_month.day)
+        return start, end
+
+    return t, t
+
+
+def _session_date_expr():
+    return func.coalesce(SessionActivite.rdv_date, SessionActivite.date_session)
+
+
+def _session_duration_minutes(session: SessionActivite, atelier: AtelierActivite) -> int:
+    if (session.session_type or "").upper() == "COLLECTIF":
+        start = _parse_time_minutes(session.heure_debut)
+        end = _parse_time_minutes(session.heure_fin)
+        if start is not None and end is not None and end > start:
+            return int(end - start)
+        if getattr(atelier, "duree_defaut_minutes", None):
+            return int(atelier.duree_defaut_minutes)
+        return 0
+
+    start = _parse_time_minutes(session.rdv_debut)
+    end = _parse_time_minutes(session.rdv_fin)
+    if start is not None and end is not None and end > start:
+        return int(end - start)
+    if getattr(atelier, "duree_defaut_minutes", None):
+        return int(atelier.duree_defaut_minutes)
+    return 0
+
+
+# ---------------------------
+# Filters
+# ---------------------------
+
+@dataclass
+class StatsFilters:
+    secteur: Optional[str] = None
+    atelier_id: Optional[int] = None
+
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None  # inclusive
+
+    preset: Optional[str] = None
+    group_by: str = "MONTH"  # DAY / MONTH / QUARTER / YEAR
+
+    periode_id: Optional[int] = None
+
+
+def normalize_filters(
+    args: Optional[dict] = None,
+    user=None,
+    secteur: Optional[str] = None,
+    atelier_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    preset: Optional[str] = None,
+    group_by: Optional[str] = None,
+    periode_id: Optional[int] = None,
+) -> StatsFilters:
+    """
+    Compat wrapper: accepte 2 styles d'appel
+    - normalize_filters(args, user=current_user)   (ancien style)
+    - normalize_filters(secteur=..., atelier_id=..., ...) (nouveau style)
+    """
+    if isinstance(args, dict):
+        if secteur is None:
+            secteur = args.get("secteur") or args.get("sector")
+        if atelier_id is None:
+            v = args.get("atelier_id") or args.get("atelier")
+            atelier_id = int(v) if v not in (None, "", "None") else None
+        if date_from is None:
+            date_from = args.get("date_from")
+        if date_to is None:
+            date_to = args.get("date_to")
+        if preset is None:
+            preset = args.get("preset")
+        if group_by is None:
+            group_by = args.get("group_by")
+        if periode_id is None:
+            v = args.get("periode_id") or args.get("periode")
+            periode_id = int(v) if v not in (None, "", "None") else None
+
+    flt = StatsFilters(
+        secteur=secteur or None,
+        atelier_id=atelier_id or None,
+        preset=preset or None,
+        group_by=(group_by or "MONTH").upper(),
+        periode_id=periode_id or None,
+    )
+
+    df = _parse_date(date_from) if date_from else None
+    dt = _parse_date(date_to) if date_to else None
+
+    if flt.periode_id and (df is None and dt is None):
+        p = db.session.get(PeriodeFinancement, flt.periode_id)
+        if p:
+            df = p.date_debut
+            dt = p.date_fin
+
+    if flt.preset and (df is None and dt is None):
+        df, dt = _apply_preset(flt.preset)
+
+    flt.date_from = df
+    flt.date_to = dt
+    return flt
+
+
+def _resolve_secteur_scope(flt: StatsFilters) -> Optional[str]:
+    role = getattr(current_user, "role", None)
+    is_admin = role in ("admin_tech", "directrice", "finance", "financiere", "financière")
+
+    user_sect = getattr(current_user, "secteur_assigne", None) or getattr(current_user, "secteur", None)
+
+    if is_admin:
+        return flt.secteur or None
+
+    return user_sect or flt.secteur or None
+
+
+def _apply_common_filters(query, flt: StatsFilters):
+    query = query.filter(SessionActivite.is_deleted.is_(False))
+    query = query.filter(AtelierActivite.is_deleted.is_(False))
+
+    eff_secteur = _resolve_secteur_scope(flt)
+    if eff_secteur:
+        query = query.filter(AtelierActivite.secteur == eff_secteur)
+
+    if flt.atelier_id:
+        query = query.filter(AtelierActivite.id == flt.atelier_id)
+
+    if flt.date_from:
+        query = query.filter(_session_date_expr() >= flt.date_from)
+    if flt.date_to:
+        query = query.filter(_session_date_expr() <= flt.date_to)
+
+    return query
+
+
+# ---------------------------
+# Main compute (Phase 1)
+# ---------------------------
+
+def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
+    base = db.session.query(SessionActivite, AtelierActivite).join(
+        AtelierActivite, AtelierActivite.id == SessionActivite.atelier_id
+    )
+    base = _apply_common_filters(base, flt)
+
+    sessions_rows: List[Tuple[SessionActivite, AtelierActivite]] = base.all()
+    session_ids = [s.id for s, _ in sessions_rows]
+
+    if session_ids:
+        presences: List[PresenceActivite] = (
+            db.session.query(PresenceActivite)
+            .filter(PresenceActivite.session_id.in_(session_ids))
+            .all()
+        )
+    else:
+        presences = []
+
+    sessions_count = len(sessions_rows)
+    presences_total = len(presences)
+    uniques = len({p.participant_id for p in presences})
+
+    # New participants in period (first time in whole system within range)
+    new_participants = 0
+    if flt.date_from or flt.date_to:
+        first_seen_sub = (
+            db.session.query(
+                PresenceActivite.participant_id.label("pid"),
+                func.min(_session_date_expr()).label("first_date"),
+            )
+            .join(SessionActivite, SessionActivite.id == PresenceActivite.session_id)
+            .filter(SessionActivite.is_deleted.is_(False))
+            .group_by(PresenceActivite.participant_id)
+            .subquery()
+        )
+        q_new = db.session.query(func.count()).select_from(first_seen_sub)
+        if flt.date_from:
+            q_new = q_new.filter(first_seen_sub.c.first_date >= flt.date_from)
+        if flt.date_to:
+            q_new = q_new.filter(first_seen_sub.c.first_date <= flt.date_to)
+        new_participants = int(q_new.scalar() or 0)
+
+    pres_by_session: Dict[int, int] = {}
+    for p in presences:
+        pres_by_session[p.session_id] = pres_by_session.get(p.session_id, 0) + 1
+
+    hours_animator = 0.0
+    hours_people = 0.0
+
+    per_atelier: Dict[int, Dict[str, Any]] = {}
+    for session, atelier in sessions_rows:
+        aid = atelier.id
+        if aid not in per_atelier:
+            per_atelier[aid] = {
+                "atelier_id": aid,
+                "secteur": atelier.secteur,
+                "nom": atelier.nom,
+                "type_atelier": getattr(atelier, "type_atelier", None),
+                "sessions": 0,
+                "presences": 0,
+                "uniques": set(),
+                "hours_animator": 0.0,
+                "hours_people": 0.0,
+            }
+
+        per_atelier[aid]["sessions"] += 1
+
+        mins = _session_duration_minutes(session, atelier)
+        if mins <= 0:
+            continue
+        h = mins / 60.0
+        hours_animator += h
+        per_atelier[aid]["hours_animator"] += h
+
+        count_p = pres_by_session.get(session.id, 0)
+        if (session.session_type or "").upper() == "COLLECTIF":
+            hours_people += h * float(count_p)
+            per_atelier[aid]["hours_people"] += h * float(count_p)
+        else:
+            if count_p > 0:
+                hours_people += h
+                per_atelier[aid]["hours_people"] += h
+
+    activity_duration_days = None
+    if sessions_rows:
+        dates = [d for d in [(s.rdv_date or s.date_session) for s, _ in sessions_rows] if d]
+        if dates:
+            dmin, dmax = min(dates), max(dates)
+            activity_duration_days = (dmax - dmin).days
+
+    avg_per_session = (presences_total / sessions_count) if sessions_count else 0.0
+
+    # Time series
+    series: Dict[str, Dict[str, Any]] = {}
+    series_sort: Dict[str, Tuple[int, int, int]] = {}
+
+    for session, _atelier in sessions_rows:
+        d = session.rdv_date or session.date_session
+        if not d:
+            continue
+        sk, label = _group_label(d, flt.group_by)
+        series.setdefault(label, {"label": label, "sessions": 0, "presences": 0, "uniques": set()})
+        series_sort.setdefault(label, sk)
+        series[label]["sessions"] += 1
+
+    session_date_map: Dict[int, date] = {}
+    for session, _atelier in sessions_rows:
+        d = session.rdv_date or session.date_session
+        if d:
+            session_date_map[session.id] = d
+
+    for p in presences:
+        d = session_date_map.get(p.session_id)
+        if not d:
+            continue
+        sk, label = _group_label(d, flt.group_by)
+        series.setdefault(label, {"label": label, "sessions": 0, "presences": 0, "uniques": set()})
+        series_sort.setdefault(label, sk)
+        series[label]["presences"] += 1
+        series[label]["uniques"].add(p.participant_id)
+
+    time_series = []
+    for label, obj in sorted(series.items(), key=lambda kv: series_sort.get(kv[0], (9999, 99, 99))):
+        time_series.append(
+            {
+                "label": obj["label"],
+                "sessions": int(obj["sessions"]),
+                "presences": int(obj["presences"]),
+                "uniques": len(obj["uniques"]),
+            }
+        )
+
+    # Heatmap weekday x bucket (session start)
+    days = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+    buckets = [(8, 10), (10, 12), (12, 14), (14, 16), (16, 18), (18, 20)]
+    bucket_labels = [f"{a:02d}-{b:02d}" for a, b in buckets]
+
+    heat = {d: {b: 0 for b in bucket_labels} for d in days}
+    for session, _atelier in sessions_rows:
+        sd = session.rdv_date or session.date_session
+        if not sd:
+            continue
+        wd = sd.weekday()
+        day_label = days[wd]
+
+        t = session.heure_debut if (session.session_type or "").upper() == "COLLECTIF" else session.rdv_debut
+        mins = _parse_time_minutes(t)
+        if mins is None:
+            continue
+
+        bucket = None
+        for a, b in buckets:
+            if a * 60 <= mins < b * 60:
+                bucket = f"{a:02d}-{b:02d}"
+                break
+        if not bucket:
+            continue
+        heat[day_label][bucket] += 1
+
+    # Per-atelier presences + uniques
+    session_to_atelier = {s.id: a.id for s, a in sessions_rows}
+    for p in presences:
+        aid = session_to_atelier.get(p.session_id)
+        if not aid or aid not in per_atelier:
+            continue
+        per_atelier[aid]["presences"] += 1
+        per_atelier[aid]["uniques"].add(p.participant_id)
+
+    table_ateliers = []
+    for aid, obj in per_atelier.items():
+        table_ateliers.append(
+            {
+                "atelier_id": aid,
+                "secteur": obj["secteur"],
+                "nom": obj["nom"],
+                "type_atelier": obj["type_atelier"],
+                "sessions": int(obj["sessions"]),
+                "presences": int(obj["presences"]),
+                "uniques": len(obj["uniques"]),
+                "hours_animator": round(float(obj["hours_animator"]), 2),
+                "hours_people": round(float(obj["hours_people"]), 2),
+            }
+        )
+    table_ateliers.sort(key=lambda r: (r["presences"], r["sessions"]), reverse=True)
+
+    return {
+        "kpi": {
+            "sessions": sessions_count,
+            "presences": presences_total,
+            "uniques": uniques,
+            "new_participants": new_participants,
+            "hours_animator": round(hours_animator, 2),
+            "hours_people": round(hours_people, 2),
+            "avg_per_session": round(avg_per_session, 2),
+            "activity_duration_days": activity_duration_days,
+        },
+        "time_series": time_series,
+        "heatmap": {"days": days, "buckets": bucket_labels, "data": heat},
+        "table_ateliers": table_ateliers,
+    }
+
+
+# ---------------------------
+# Phase 2 stats
+# ---------------------------
+
+def _get_scoped_sessions_and_presences(flt: StatsFilters):
+    base = db.session.query(SessionActivite, AtelierActivite).join(
+        AtelierActivite, AtelierActivite.id == SessionActivite.atelier_id
+    )
+    base = _apply_common_filters(base, flt)
+    sessions_rows = base.all()
+    session_ids = [s.id for s, _ in sessions_rows]
+    if session_ids:
+        presences = (
+            db.session.query(PresenceActivite)
+            .filter(PresenceActivite.session_id.in_(session_ids))
+            .all()
+        )
+    else:
+        presences = []
+    return sessions_rows, presences
+
+
+def compute_participation_frequency_stats(flt: StatsFilters) -> Dict[str, Any]:
+    sessions_rows, presences = _get_scoped_sessions_and_presences(flt)
+    counts = Counter([p.participant_id for p in presences])
+    uniques = len(counts)
+    pres_total = sum(counts.values())
+    freq_avg = (pres_total / uniques) if uniques else 0.0
+
+    returning = sum(1 for n in counts.values() if n >= 2)
+    returning_rate = (returning / uniques) if uniques else 0.0
+
+    buckets = {"1": 0, "2-3": 0, "4-6": 0, "7+": 0}
+    for n in counts.values():
+        if n <= 1:
+            buckets["1"] += 1
+        elif 2 <= n <= 3:
+            buckets["2-3"] += 1
+        elif 4 <= n <= 6:
+            buckets["4-6"] += 1
+        else:
+            buckets["7+"] += 1
+
+    regulars_4plus = sum(1 for n in counts.values() if n >= 4)
+
+    return {
+        "uniques": uniques,
+        "presences_total": pres_total,
+        "freq_avg": round(freq_avg, 2),
+        "returning": returning,
+        "returning_rate": round(returning_rate * 100, 1),
+        "regulars_4plus": regulars_4plus,
+        "buckets": buckets,
+    }
+
+
+def compute_transversalite_stats(flt: StatsFilters) -> Dict[str, Any]:
+    sessions_rows, presences = _get_scoped_sessions_and_presences(flt)
+    scope_secteur = _resolve_secteur_scope(flt)
+
+    scope_participants: Set[int] = set(p.participant_id for p in presences)
+    if not scope_participants:
+        return {
+            "scope_secteur": scope_secteur,
+            "uniques": 0,
+            "multi_count": 0,
+            "multi_rate": 0.0,
+            "top_cross": [],
+        }
+
+    base = (
+        db.session.query(PresenceActivite.participant_id, AtelierActivite.secteur)
+        .join(SessionActivite, SessionActivite.id == PresenceActivite.session_id)
+        .join(AtelierActivite, AtelierActivite.id == SessionActivite.atelier_id)
+        .filter(SessionActivite.is_deleted.is_(False))
+        .filter(AtelierActivite.is_deleted.is_(False))
+        .filter(PresenceActivite.participant_id.in_(list(scope_participants)))
+    )
+    if flt.date_from:
+        base = base.filter(_session_date_expr() >= flt.date_from)
+    if flt.date_to:
+        base = base.filter(_session_date_expr() <= flt.date_to)
+
+    rows = base.all()
+
+    secteurs_by_pid: Dict[int, Set[str]] = defaultdict(set)
+    for pid, sect in rows:
+        if sect:
+            secteurs_by_pid[pid].add(str(sect).strip())
+
+    multi_pids = [pid for pid, sset in secteurs_by_pid.items() if len(sset) >= 2]
+    multi_count = len(multi_pids)
+    uniques = len(scope_participants)
+    multi_rate = (multi_count / uniques) * 100.0 if uniques else 0.0
+
+    cross_counts = Counter()
+    if scope_secteur:
+        for pid in scope_participants:
+            sset = secteurs_by_pid.get(pid, set())
+            if scope_secteur in sset:
+                for other in sset:
+                    if other != scope_secteur:
+                        cross_counts[other] += 1
+
+    top_cross = [{"secteur": k, "participants_communs": v} for k, v in cross_counts.most_common(10)]
+
+    return {
+        "scope_secteur": scope_secteur,
+        "uniques": uniques,
+        "multi_count": multi_count,
+        "multi_rate": round(multi_rate, 1),
+        "top_cross": top_cross,
+    }
+
+
+def compute_demography_stats(flt: StatsFilters) -> Dict[str, Any]:
+    sessions_rows, presences = _get_scoped_sessions_and_presences(flt)
+    pids = sorted(set(p.participant_id for p in presences))
+    if not pids:
+        return {
+            "age_avg": None,
+            "age_buckets": {},
+            "genre": {},
+            "villes_top": [],
+            "creil": {"creil": 0, "hors_creil": 0},
+            "qpv": {"qpv": 0, "hors_qpv": 0, "inconnu": 0},
+            "type_public": {},
+        }
+
+    participants = db.session.query(Participant).filter(Participant.id.in_(pids)).all()
+
+    ages = [p.age for p in participants if p.age is not None]
+    age_avg = round(sum(ages) / len(ages), 1) if ages else None
+
+    age_buckets = {"0-10": 0, "11-17": 0, "18-25": 0, "26-59": 0, "60+": 0, "Inconnu": 0}
+    for p in participants:
+        a = p.age
+        if a is None:
+            age_buckets["Inconnu"] += 1
+        elif a <= 10:
+            age_buckets["0-10"] += 1
+        elif a <= 17:
+            age_buckets["11-17"] += 1
+        elif a <= 25:
+            age_buckets["18-25"] += 1
+        elif a <= 59:
+            age_buckets["26-59"] += 1
+        else:
+            age_buckets["60+"] += 1
+
+    genre_counts = Counter([(p.genre or "Inconnu").strip() or "Inconnu" for p in participants])
+
+    ville_counts = Counter([(p.ville or "Inconnue").strip() or "Inconnue" for p in participants])
+    villes_top = [{"ville": k, "count": v} for k, v in ville_counts.most_common(10)]
+
+    creil = sum(1 for p in participants if getattr(p, "is_creil", False))
+    hors_creil = len(participants) - creil
+
+    qpv = 0
+    hors_qpv = 0
+    inconnu = 0
+    for p in participants:
+        if getattr(p, "quartier", None) is None:
+            inconnu += 1
+        else:
+            if getattr(p, "is_qpv", False):
+                qpv += 1
+            else:
+                hors_qpv += 1
+
+    type_public_counts = Counter([(p.type_public or "H") for p in participants])
+
+    return {
+        "age_avg": age_avg,
+        "age_buckets": age_buckets,
+        "genre": dict(genre_counts),
+        "villes_top": villes_top,
+        "creil": {"creil": creil, "hors_creil": hors_creil},
+        "qpv": {"qpv": qpv, "hors_qpv": hors_qpv, "inconnu": inconnu},
+        "type_public": dict(type_public_counts),
+    }
