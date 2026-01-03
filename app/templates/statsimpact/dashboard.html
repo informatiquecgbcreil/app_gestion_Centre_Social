@@ -31,12 +31,16 @@
 
     <div>
       <label>Du</label><br>
-      <input type="date" name="date_from" value="{{ flt.date_from }}">
+      {% set date_from_value = flt.date_from.isoformat() if flt.date_from else "" %}
+      <input type="date" name="date_from" value="{{ date_from_value }}">
+      <div class="help">Par défaut, l'année en cours est appliquée si aucune date n'est renseignée.</div>
     </div>
 
     <div>
       <label>Au</label><br>
-      <input type="date" name="date_to" value="{{ flt.date_to }}">
+      {% set date_to_value = flt.date_to.isoformat() if flt.date_to else "" %}
+      <input type="date" name="date_to" value="{{ date_to_value }}">
+      <div class="help">Adaptez la période pour affiner vos KPI ; vide = bornes de l'année courante.</div>
     </div>
 
     <div>
@@ -46,6 +50,7 @@
         <option value="{{ g }}" {% if flt.group_by==g %}selected{% endif %}>{{ g }}</option>
         {% endfor %}
       </select>
+      <div class="help">Mode d'agrégation des courbes et tableaux (jour, mois, trimestre, année).</div>
     </div>
 
     <div>
@@ -53,6 +58,24 @@
     </div>
   </div>
 </form>
+
+{% if (not flt.atelier_id) and flt.group_by and flt.group_by != "MONTH" %}
+  <div class="flash warning">Sélectionnez un atelier pour ce mode de lecture afin d'éviter des agrégations trop larges.</div>
+{% endif %}
+
+{% set kpi_values = [
+  stats.kpi.sessions or 0,
+  stats.kpi.presences or 0,
+  stats.kpi.uniques or 0,
+  stats.kpi.new_participants or 0,
+  stats.kpi.avg_per_session or 0,
+  stats.kpi.hours_animator or 0,
+  stats.kpi.hours_people or 0,
+  stats.kpi.activity_duration_days or 0,
+] %}
+{% if kpi_values|sum == 0 %}
+  <div class="flash warning">Filtres trop restrictifs : aucun indicateur n'est ressorti sur la période choisie.</div>
+{% endif %}
 
 <hr>
 
