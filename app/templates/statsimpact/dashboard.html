@@ -460,51 +460,108 @@
     </div>
   </div>
   {% if participants.participants and participants.participants|length > 0 %}
-    <table class="mini-table">
-      <thead>
-        <tr>
-          <th>Participant</th>
-          <th>Coordonnées</th>
-          <th>Statistiques</th>
-          <th>Sessions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in participants.participants %}
-          <tr>
-            <td>
-              <strong>{{ p.prenom }} {{ p.nom }}</strong><br>
-              <span class="tag-soft">Genre : {{ p.genre or "N/A" }}</span>
-              <span class="tag-soft">Âge : {{ p.age if p.age is not none else "N/A" }}</span><br>
-              <small>{{ p.ville or "Ville inconnue" }}{% if p.quartier %} — {{ p.quartier }}{% endif %}</small>
-            </td>
-            <td style="font-size:13px;">
-              <div>📞 {{ p.telephone or "N/A" }}</div>
-              <div>✉️ {{ p.email or "N/A" }}</div>
-              <div>QPV : {% if p.qpv %}Oui{% else %}Non{% endif %}</div>
-            </td>
-            <td style="font-size:13px;">
-              <div><strong>{{ p.visites }}</strong> venues</div>
-              <div>
-                Ateliers :
-                <ul style="margin:6px 0 0 14px; padding:0;">
-                  {% for a in p.ateliers.values() %}
-                    <li>{{ a.atelier }} ({{ a.secteur }}) — {{ a.visites }} venue(s)</li>
-                  {% endfor %}
-                </ul>
+    <div class="grid" style="grid-template-columns:1fr; gap:12px;">
+      {% for p in participants.participants %}
+        <div class="card" style="padding:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div>
+              <strong style="font-size:16px;">{{ p.prenom }} {{ p.nom }}</strong>
+              <div class="muted" style="font-size:13px;">{{ p.ville or "Ville inconnue" }}{% if p.quartier %} — {{ p.quartier }}{% endif %}</div>
+            </div>
+            <div class="tag-soft">Total venues : {{ p.visites }}</div>
+            <button class="btn" type="button" data-toggle-detail="{{ p.id }}">Détail</button>
+          </div>
+          <div id="participant-detail-{{ p.id }}" class="participant-detail" style="display:none; margin-top:12px;">
+            <div class="grid" style="grid-template-columns:1fr 1fr; gap:12px;">
+              <form method="post" class="card" style="padding:12px; background:var(--surface-soft);">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="update_participant">
+                <input type="hidden" name="participant_id" value="{{ p.id }}">
+                <input type="hidden" name="tab" value="participants">
+                <div class="pill" style="margin-bottom:8px;">Données personnelles</div>
+                <div class="grid" style="grid-template-columns:1fr 1fr; gap:10px;">
+                  <div>
+                    <label>Nom</label>
+                    <input class="in" name="nom" value="{{ p.nom }}">
+                  </div>
+                  <div>
+                    <label>Prénom</label>
+                    <input class="in" name="prenom" value="{{ p.prenom }}">
+                  </div>
+                  <div>
+                    <label>Email</label>
+                    <input class="in" type="email" name="email" value="{{ p.email or '' }}">
+                  </div>
+                  <div>
+                    <label>Téléphone</label>
+                    <input class="in" type="tel" name="telephone" value="{{ p.telephone or '' }}">
+                  </div>
+                  <div>
+                    <label>Ville</label>
+                    <input class="in" name="ville" value="{{ p.ville or '' }}">
+                  </div>
+                  <div>
+                    <label>Quartier</label>
+                    <select class="in" name="quartier_id">
+                      <option value="">—</option>
+                      {% for q in quartiers %}
+                        <option value="{{ q.id }}" {% if p.quartier_id == q.id %}selected{% endif %}>{{ q.nom }}{% if q.is_qpv %} (QPV){% endif %}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label>Genre</label>
+                    <select class="in" name="genre">
+                      <option value="">—</option>
+                      <option value="Femme" {% if p.genre == "Femme" %}selected{% endif %}>Femme</option>
+                      <option value="Homme" {% if p.genre == "Homme" %}selected{% endif %}>Homme</option>
+                      <option value="Autre" {% if p.genre == "Autre" %}selected{% endif %}>Autre</option>
+                      <option value="Préférez ne pas répondre" {% if p.genre == "Préférez ne pas répondre" %}selected{% endif %}>Préférez ne pas répondre</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Date de naissance</label>
+                    <input class="in" type="date" name="date_naissance" value="{{ p.date_naissance or '' }}">
+                  </div>
+                  <div>
+                    <label>Type de public</label>
+                    <select class="in" name="type_public">
+                      {% for code in ["H","S","B","A","P"] %}
+                        <option value="{{ code }}" {% if p.type_public == code %}selected{% endif %}>{{ code }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-top:12px; text-align:right;">
+                  <button class="btn" type="submit">Enregistrer</button>
+                </div>
+              </form>
+
+              <div class="card" style="padding:12px;">
+                <div class="pill" style="margin-bottom:8px;">Participation</div>
+                <div class="muted" style="font-size:13px; margin-bottom:8px;">{{ p.visites }} venue(s) sur la période filtrée.</div>
+                <div style="font-size:13px; margin-bottom:10px;">
+                  <strong>Ateliers fréquentés</strong>
+                  <ul style="margin:6px 0 0 14px; padding:0;">
+                    {% for a in p.ateliers.values() %}
+                      <li>{{ a.atelier }} ({{ a.secteur }}) — {{ a.visites }} venue(s)</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                <div style="font-size:13px;">
+                  <strong>Sessions</strong>
+                  <ul style="margin:6px 0 0 14px; padding:0;">
+                    {% for s in p.sessions %}
+                      <li>{{ s.date or "Date ?" }} — {{ s.atelier }} ({{ s.secteur }})</li>
+                    {% endfor %}
+                  </ul>
+                </div>
               </div>
-            </td>
-            <td style="font-size:13px;">
-              <ul style="margin:0; padding-left:14px;">
-                {% for s in p.sessions %}
-                  <li>{{ s.date or "Date ?" }} — {{ s.atelier }} ({{ s.secteur }})</li>
-                {% endfor %}
-              </ul>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
   {% else %}
     <div class="card" style="padding:16px; border:1px solid #eee;">
       <p style="margin:0;">Aucun participant sur ce filtre.</p>
@@ -535,6 +592,18 @@
     });
 
     activate(initial);
+
+    // Participant detail toggles
+    document.querySelectorAll("[data-toggle-detail]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const pid = btn.getAttribute("data-toggle-detail");
+        const pane = document.getElementById(`participant-detail-${pid}`);
+        if (!pane) return;
+        const isOpen = pane.style.display !== "none";
+        pane.style.display = isOpen ? "none" : "block";
+        btn.textContent = isOpen ? "Détail" : "Fermer";
+      });
+    });
   })();
 </script>
 {% endblock %}
