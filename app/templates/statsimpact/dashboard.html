@@ -52,6 +52,21 @@
 </style>
 
 <h1>Stats & Impacts</h1>
+{% set current_mode = (flt.mode if flt.mode is defined else None) or "Tous modes" %}
+{% set current_secteur = flt.secteur or "Tous secteurs" %}
+<p class="muted">Période : {{ flt.date_from }} → {{ flt.date_to }} — Mode : {{ current_mode }} — Secteur : {{ current_secteur }}</p>
+
+<style>
+  .spark-row{display:flex; align-items:flex-end; gap:6px; margin-top:4px;}
+  .spark-bar{width:12px; border-radius:4px; background:rgba(106,165,255,.55);}
+  .spark-bar.presences{background:rgba(88,204,152,.55);}
+  .spark-bar.uniques{background:rgba(199,146,234,.65);}
+  .heat-cell{min-width:42px; text-align:center; padding:6px 10px; border-radius:10px; font-weight:700;}
+  .heat-0{background:color-mix(in srgb, var(--border) 15%, transparent); color:var(--muted);}
+  .heat-low{background:rgba(106,165,255,.22); color:#f4f7ff;}
+  .heat-mid{background:rgba(106,165,255,.35); color:#fff;}
+  .heat-high{background:rgba(106,165,255,.55); color:#fff;}
+</style>
 
 <form method="get" style="margin-bottom: 16px;">
   <div style="display:flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
@@ -81,12 +96,16 @@
 
     <div>
       <label>Du</label><br>
-      <input type="date" name="date_from" value="{{ flt.date_from }}">
+      {% set date_from_value = flt.date_from.isoformat() if flt.date_from else "" %}
+      <input type="date" name="date_from" value="{{ date_from_value }}">
+      <div class="help">Par défaut, l'année en cours est appliquée si aucune date n'est renseignée.</div>
     </div>
 
     <div>
       <label>Au</label><br>
-      <input type="date" name="date_to" value="{{ flt.date_to }}">
+      {% set date_to_value = flt.date_to.isoformat() if flt.date_to else "" %}
+      <input type="date" name="date_to" value="{{ date_to_value }}">
+      <div class="help">Adaptez la période pour affiner vos KPI ; vide = bornes de l'année courante.</div>
     </div>
 
     <div>
@@ -96,6 +115,7 @@
         <option value="{{ g }}" {% if flt.group_by==g %}selected{% endif %}>{{ g }}</option>
         {% endfor %}
       </select>
+      <div class="help">Mode d'agrégation des courbes et tableaux (jour, mois, trimestre, année).</div>
     </div>
 
     <div>

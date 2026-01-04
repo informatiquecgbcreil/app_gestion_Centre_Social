@@ -14,10 +14,22 @@
       <h1>Stats &amp; Impact</h1>
       <p>Mode <b>Volume &amp; activité</b> — filtres + onglets (Base / Avancé / Participants).</p>
 
-      <form method="get" class="row three" style="margin-top:12px;">
-        <div>
-          <label for="date_from">Du</label>
-          <input id="date_from" name="date_from" type="date" value="{{ flt.date_from }}">
+    <style>
+      .spark-row{display:flex; align-items:flex-end; gap:6px; margin-top:4px;}
+      .spark-bar{width:12px; border-radius:4px; background:rgba(106,165,255,.55);}
+      .spark-bar.presences{background:rgba(88,204,152,.55);}
+      .spark-bar.uniques{background:rgba(199,146,234,.65);}
+      .heat-cell{min-width:42px; text-align:center; padding:8px 10px; border-radius:10px; font-weight:700;}
+      .heat-0{background:color-mix(in srgb, var(--border) 15%, transparent); color:var(--muted);}
+      .heat-low{background:rgba(106,165,255,.22); color:#f4f7ff;}
+      .heat-mid{background:rgba(106,165,255,.35); color:#fff;}
+      .heat-high{background:rgba(106,165,255,.55); color:#fff;}
+    </style>
+
+    <form method="get" class="row three" style="margin-top:12px;">
+      <div>
+        <label for="date_from">Du</label>
+        <input id="date_from" name="date_from" type="date" value="{{ flt.date_from }}">
         </div>
         <div>
           <label for="date_to">Au</label>
