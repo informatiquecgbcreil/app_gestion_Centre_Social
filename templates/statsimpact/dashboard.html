@@ -1,13 +1,18 @@
 {% extends "layout.html" %}
 
 {% block body %}
+  <style>
+    .tab-nav{ display:flex; gap:8px; margin:12px 0 16px 0; flex-wrap:wrap; }
+    .tab-btn{ padding:10px 14px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.05); border-radius:12px; cursor:pointer; font-weight:700; color:inherit; }
+    .tab-btn.active{ background:linear-gradient(135deg,#0f62fe,#6c5ce7); border-color:#6c5ce7; color:#fff; box-shadow:0 10px 20px rgba(0,0,0,.25); }
+    .tab-pane{ display:none; }
+    .tab-pane.active{ display:block; }
+  </style>
+
   <div class="stack">
-  <div class="card">
-    <h1>Stats &amp; Impact</h1>
-    <p>Mode <b>Volume &amp; activité</b> — dashboard + détails. (Les autres onglets arrivent.)</p>
-    {% set current_mode = (flt.mode if flt.mode is defined else None) or "Tous modes" %}
-    {% set current_secteur = flt.secteur or "Tous secteurs" %}
-    <p class="muted">Période : {{ flt.date_from }} → {{ flt.date_to }} — Mode : {{ current_mode }} — Secteur : {{ current_secteur }}</p>
+    <div class="card">
+      <h1>Stats &amp; Impact</h1>
+      <p>Mode <b>Volume &amp; activité</b> — filtres + onglets (Base / Avancé / Participants).</p>
 
     <style>
       .spark-row{display:flex; align-items:flex-end; gap:6px; margin-top:4px;}
@@ -78,329 +83,433 @@
       </form>
     </div>
 
-    <div class="card">
-      <div class="inline" style="justify-content:space-between; align-items:flex-end;">
-        <div>
-          <h2>Dashboard — Volume &amp; activité</h2>
-          <p class="muted">Clique une tuile pour “focus” (bientôt : changement des graphes). Pour l’instant : lecture rapide + détails.</p>
-        </div>
-        <div class="tag">Période : {{ flt.date_from }} → {{ flt.date_to }}</div>
-      </div>
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab-btn="base">Statistiques de base</button>
+      <button class="tab-btn" data-tab-btn="advanced">Statistiques avancées</button>
+      <button class="tab-btn" data-tab-btn="participants">Participants</button>
+    </div>
 
-      <div class="kpi" style="margin-top:12px;">
-        <div class="box" title="Nombre de sessions réalisées sur la période">
-          <div class="muted">Sessions réalisées</div>
-          <div class="v">{{ stats.kpi.sessions }}</div>
+    <!-- Onglet BASE -->
+    <div class="tab-pane active" data-tab="base">
+      <div class="card">
+        <div class="inline" style="justify-content:space-between; align-items:flex-end;">
+          <div>
+            <h2>Vue sectorisée (base)</h2>
+            <p class="muted">Sessions prév./réelles, capacités, heures, taux d’occupation, moyenne par séance.</p>
+          </div>
+          <div class="tag">Secteur : {{ flt.secteur or "Tous" }}</div>
         </div>
-        <div class="box" title="Total des émargements (occurrences)">
-          <div class="muted">Présences (occ.)</div>
-          <div class="v">{{ stats.kpi.presences }}</div>
-        </div>
-        <div class="box" title="Participants différents sur la période">
-          <div class="muted">Participants uniques</div>
-          <div class="v">{{ stats.kpi.uniques }}</div>
-        </div>
-        <div class="box" title="Première venue dans le système sur la période (tous secteurs)">
-          <div class="muted">Nouveaux participants</div>
-          <div class="v">{{ stats.kpi.new_participants }}</div>
-        </div>
-        <div class="box" title="Heures d’animation (temps de séance, sans multiplier par les présents)">
-          <div class="muted">Heures animateur</div>
-          <div class="v">{{ stats.kpi.hours_animator }}</div>
-        </div>
-        <div class="box" title="Heures-personnes : durée × présents (collectif). Indiv = durée du RDV.">
-          <div class="muted">Heures-personnes</div>
-          <div class="v">{{ stats.kpi.hours_people }}</div>
-        </div>
-      </div>
-
-      <div class="spacer"></div>
-
-      <div class="grid two">
-        <div class="card" style="background:rgba(255,255,255,.03);">
-          <h3>Évolution ({{ (flt.group_by or 'MONTH')|upper }})</h3>
-          {% set ts = (stats.time_series if stats.time_series is defined else stats.monthly_series) or [] %}
-          {% set sessions_vals = ts|map(attribute='sessions')|list %}
-          {% set pres_vals = ts|map(attribute='presences')|list %}
-          {% set uniq_vals = ts|map(attribute='uniques')|list %}
-          {% set max_sess = sessions_vals|max if sessions_vals else 0 %}
-          {% set max_pres = pres_vals|max if pres_vals else 0 %}
-          {% set max_uniq = uniq_vals|max if uniq_vals else 0 %}
-          {% if ts %}
+        {% if stats.base_by_secteur %}
+          {% for sect, rows in stats.base_by_secteur.items() %}
+            <h3 style="margin-top:18px;">Secteur : {{ sect }}</h3>
             <div class="tablewrap">
-              <div>
-                <div class="muted">Sessions</div>
-                <div class="spark-row">
-                  {% for m in ts %}
-                    {% set h = 6 if max_sess==0 else 6 + ((m.sessions / max_sess) * 34) %}
-                    <span class="spark-bar" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.sessions }}"></span>
-                  {% endfor %}
-                </div>
-              </div>
-              <div>
-                <div class="muted" style="margin-top:10px;">Présences</div>
-                <div class="spark-row">
-                  {% for m in ts %}
-                    {% set h = 6 if max_pres==0 else 6 + ((m.presences / max_pres) * 34) %}
-                    <span class="spark-bar presences" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.presences }}"></span>
-                  {% endfor %}
-                </div>
-              </div>
-              <div>
-                <div class="muted" style="margin-top:10px;">Uniques</div>
-                <div class="spark-row">
-                  {% for m in ts %}
-                    {% set h = 6 if max_uniq==0 else 6 + ((m.uniques / max_uniq) * 34) %}
-                    <span class="spark-bar uniques" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.uniques }}"></span>
-                  {% endfor %}
-                </div>
-              </div>
-            </div>
-          {% else %}
-            <div class="muted" style="display:flex; align-items:center; gap:6px; margin-top:6px;">
-              <span aria-hidden="true">⚠️</span> Aucune donnée.
-            </div>
-          {% endif %}
-        </div>
-
-        <div class="card" style="background:rgba(255,255,255,.03);">
-          <h3>Heatmap (sessions par jour/créneau)</h3>
-          <p class="muted">Basée sur l’heure de début (si renseignée). Si pas d’heure, pas de case.</p>
-          <div class="tablewrap">
-            <table style="min-width:680px;">
-              <thead>
-                <tr>
-                  <th>Jour</th>
-                  {% for b in stats.heatmap.buckets %}
-                    <th>{{ b }}</th>
-                  {% endfor %}
-                </tr>
-              </thead>
-              <tbody>
-                {% for d in stats.heatmap.days %}
+              <table>
+                <thead>
                   <tr>
-                    {% set row_total = stats.heatmap.data[d].values()|sum %}
-                    <td>
-                      <div style="display:flex; align-items:center; gap:8px;">
-                        <b>{{ d }}</b>
-                        {% if row_total == 0 %}
-                          <span class="tag" style="background:color-mix(in srgb, var(--surface) 75%, var(--border));">Pas d’heure de début renseignée</span>
-                        {% endif %}
-                      </div>
-                    </td>
-                    {% for b in stats.heatmap.buckets %}
-                      {% set v = stats.heatmap.data[d][b] %}
-                      {% set level = "heat-0" %}
-                      {% if v > 0 and v <= 1 %}
-                        {% set level = "heat-low" %}
-                      {% elif v > 1 and v <= 3 %}
-                        {% set level = "heat-mid" %}
-                      {% elif v > 3 %}
-                        {% set level = "heat-high" %}
-                      {% endif %}
-                      <td>
-                        <div class="heat-cell {{ level }}" title="{{ d }} · {{ b }}">
-                          {{ v }}
-                        </div>
-                      </td>
-                    {% endfor %}
+                    <th>Atelier</th>
+                    <th>Sessions prév.</th>
+                    <th>Sessions réelles</th>
+                    <th>Présences totales</th>
+                    <th>Heures réalisées</th>
+                    <th>Heures prév.</th>
+                    <th>Inscrits</th>
+                    <th>Capacité accueil</th>
+                    <th>Places prév.</th>
+                    <th>Taux d'occupation</th>
+                    <th>Moyenne / séance</th>
+                    <th>Durée activité (j)</th>
                   </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                </thead>
+                <tbody>
+                  {% for r in rows %}
+                    <tr>
+                      <td><b>{{ r.nom }}</b></td>
+                      <td>{{ r.sessions_planned }}</td>
+                      <td>{{ r.sessions_real }}</td>
+                      <td>{{ r.presences }}</td>
+                      <td>{{ r.real_hours }}</td>
+                      <td>{{ r.planned_hours }}</td>
+                      <td>{{ r.uniques }}</td>
+                      <td>{{ r.real_capacity }}</td>
+                      <td>{{ r.planned_capacity }}</td>
+                      <td>{{ r.occupation_rate }}%</td>
+                      <td>{{ r.avg_per_session_real }}</td>
+                      <td>{{ r.activity_duration_days if r.activity_duration_days is not none else "N/A" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endfor %}
+        {% else %}
+          <p class="muted">Aucun atelier dans cette période ou ce filtre.</p>
+        {% endif %}
       </div>
     </div>
 
-    <div class="card">
-      <div class="inline" style="justify-content:space-between;">
-        <h2>Détails — par atelier</h2>
-        <div class="tag">Moyenne par séance (global) : {{ stats.kpi.avg_per_session }}</div>
-      </div>
-      <div class="tablewrap" style="margin-top:10px;">
-        <table>
-          <thead>
-            <tr>
-              <th>Secteur</th>
-              <th>Atelier</th>
-              <th>Type</th>
-              <th>Sessions</th>
-              <th>Présences</th>
-              <th>Uniques</th>
-              <th>Moy./séance</th>
-              <th>Heures animateur</th>
-              <th>Heures-personnes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in stats.table_ateliers %}
-              <tr>
-                <td>{{ r.secteur }}</td>
-                <td>
-                  <a class="pill" href="{{ url_for('statsimpact.dashboard', date_from=flt.date_from, date_to=flt.date_to, mode=flt.mode, secteur=flt.secteur, atelier_id=r.atelier_id) }}">{{ r.nom }}</a>
-                </td>
-                <td class="muted">{{ r.type_atelier }}</td>
-                <td>{{ r.sessions }}</td>
-                <td>{{ r.presences }}</td>
-                <td>{{ r.uniques }}</td>
-                <td>{{ r.avg_per_session }}</td>
-                <td>{{ r.hours_animator }}</td>
-                <td>{{ r.hours_people }}</td>
-              </tr>
-            {% else %}
-              <tr><td colspan="9" class="muted">Aucune donnée.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <p class="muted" style="margin-top:10px;">Prochaine étape : “Remplissage / capacité” (taux d’occupation, sessions pleines/vides, variance…).</p>
-    </div>
+    <!-- Onglet ADVANCED -->
+    <div class="tab-pane" data-tab="advanced">
+      <div class="card">
+        <div class="inline" style="justify-content:space-between; align-items:flex-end;">
+          <div>
+            <h2>Dashboard — Volume &amp; activité</h2>
+            <p class="muted">Lecture rapide : KPI + évolution + occupation.</p>
+          </div>
+          <div class="tag">Période : {{ flt.date_from }} → {{ flt.date_to }}</div>
+        </div>
 
-    <div class="grid two">
-      <div class="card" style="background:rgba(255,255,255,.03);">
-        <h2>Participation &amp; fidélisation</h2>
-        <div class="kpi" style="margin-top:10px;">
-          <div class="box">
-            <div class="muted">Fréquence moyenne</div>
-            <div class="v">{{ freq.avg_freq }}</div>
+        <div class="kpi" style="margin-top:12px;">
+          <div class="box" title="Nombre de sessions réalisées sur la période">
+            <div class="muted">Sessions réalisées</div>
+            <div class="v">{{ stats.kpi.sessions }}</div>
           </div>
-          <div class="box">
-            <div class="muted">Taux de retour (≥2)</div>
-            <div class="v">{{ freq.returning_rate }}%</div>
+          <div class="box" title="Total des émargements (occurrences)">
+            <div class="muted">Présences (occ.)</div>
+            <div class="v">{{ stats.kpi.presences }}</div>
           </div>
-          <div class="box">
-            <div class="muted">Réguliers (≥4)</div>
-            <div class="v">{{ freq.regulars_count }}</div>
+          <div class="box" title="Participants différents sur la période">
+            <div class="muted">Participants uniques</div>
+            <div class="v">{{ stats.kpi.uniques }}</div>
+          </div>
+          <div class="box" title="Première venue dans le système sur la période (tous secteurs)">
+            <div class="muted">Nouveaux participants</div>
+            <div class="v">{{ stats.kpi.new_participants }}</div>
+          </div>
+          <div class="box" title="Heures d’animation (temps de séance, sans multiplier par les présents)">
+            <div class="muted">Heures animateur</div>
+            <div class="v">{{ stats.kpi.hours_animator }}</div>
+          </div>
+          <div class="box" title="Heures-personnes : durée × présents (collectif). Indiv = durée du RDV.">
+            <div class="muted">Heures-personnes</div>
+            <div class="v">{{ stats.kpi.hours_people }}</div>
           </div>
         </div>
 
-        <div class="tablewrap" style="margin-top:12px;">
+        <div class="spacer"></div>
+
+        <div class="grid two">
+          <div class="card" style="background:rgba(255,255,255,.03);">
+            <h3>Évolution ({{ (flt.group_by or 'MONTH')|upper }})</h3>
+            <div class="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mois</th>
+                    <th>Sessions</th>
+                    <th>Présences</th>
+                    <th>Uniques</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for m in (stats.time_series if stats.time_series is defined else stats.monthly_series) %}
+                    <tr>
+                      <td><b>{{ m.label }}</b></td>
+                      <td>{{ m.sessions }}</td>
+                      <td>{{ m.presences }}</td>
+                      <td>{{ m.uniques }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card" style="background:rgba(255,255,255,.03);">
+            <h3>Participation &amp; fidélisation</h3>
+            <p class="muted">Fréquence moyenne = présences totales / uniques.</p>
+            <div class="kpi" style="grid-template-columns:1fr 1fr;">
+              <div class="box">
+                <div class="muted">Fréquence moyenne</div>
+                <div class="v">{{ freq.freq_avg }}</div>
+              </div>
+              <div class="box">
+                <div class="muted">Réguliers (≥ 4 venues)</div>
+                <div class="v">{{ freq.regulars_4plus }}</div>
+              </div>
+            </div>
+            <div class="tablewrap">
+              <table>
+                <thead>
+                  <tr><th>Bucket</th><th>Uniques</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>1 venue</td><td>{{ freq.buckets["1"] }}</td></tr>
+                  <tr><td>2-3 venues</td><td>{{ freq.buckets["2-3"] }}</td></tr>
+                  <tr><td>4-6 venues</td><td>{{ freq.buckets["4-6"] }}</td></tr>
+                  <tr><td>7+ venues</td><td>{{ freq.buckets["7+"] }}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Heatmap (session par jour/créneau)</h2>
+        <p class="muted">Basée sur l'heure de début (si renseignée). Si pas d'heure, pas de case.</p>
+        <div class="tablewrap">
           <table>
             <thead>
-              <tr><th>Fréquence</th><th>Participants</th></tr>
+              <tr>
+                <th>Jour</th>
+                {% for b in stats.heatmap.buckets %}
+                <th>{{ b }}</th>
+                {% endfor %}
+              </tr>
             </thead>
             <tbody>
-              <tr><td>1 venue</td><td>{{ freq.buckets["1"] }}</td></tr>
-              <tr><td>2–3 venues</td><td>{{ freq.buckets["2-3"] }}</td></tr>
-              <tr><td>4–6 venues</td><td>{{ freq.buckets["4-6"] }}</td></tr>
-              <tr><td>7+ venues</td><td>{{ freq.buckets["7+"] }}</td></tr>
+              {% for day in stats.heatmap.days %}
+                <tr>
+                  <td><b>{{ day }}</b></td>
+                  {% for b in stats.heatmap.buckets %}
+                    <td>{{ stats.heatmap.data[day][b] }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>
       </div>
 
-      <div class="card" style="background:rgba(255,255,255,.03);">
-        <h2>Transversalité</h2>
-        <p class="muted">Toujours en agrégé : aucun nom, que des recoupements.</p>
-        <div class="kpi" style="margin-top:10px;">
-          <div class="box">
-            <div class="muted">Uniques (scope)</div>
-            <div class="v">{{ trans.uniques }}</div>
-          </div>
-          <div class="box">
-            <div class="muted">Multi-secteurs</div>
-            <div class="v">{{ trans.multi_count }}</div>
-          </div>
-          <div class="box">
-            <div class="muted">Taux multi</div>
-            <div class="v">{{ trans.multi_rate }}%</div>
-          </div>
+      <div class="card">
+        <h2>Occupation (collectif) – atelier + séance</h2>
+        <p class="muted">Basée sur les capacités affichées et les présences émargées.</p>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Atelier</th>
+                <th>Sessions</th>
+                <th>Présences</th>
+                <th>Capacité cumulée</th>
+                <th>Taux d'occupation</th>
+                <th>Rempl. moyen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in occupancy.by_atelier %}
+                <tr>
+                  <td><b>{{ row.nom }}</b> <span class="muted">({{ row.type_atelier }})</span></td>
+                  <td>{{ row.sessions }}</td>
+                  <td>{{ row.presences }}</td>
+                  <td>{{ row.capacite }}</td>
+                  <td>{{ row.taux_occupation }}%</td>
+                  <td>{{ row.remplissage_moyen }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
+      </div>
 
-        {% if trans.sector_scope and trans.top_cross and trans.top_cross|length > 0 %}
-          <div class="tablewrap" style="margin-top:12px;">
+      <div class="card">
+        <h2>Transversalité</h2>
+        <p class="muted">Participants multi-secteurs : {{ trans.multi_count }} / {{ trans.uniques }} ({{ trans.multi_rate }}%).</p>
+        {% if trans.top_cross and trans.top_cross|length>0 %}
+          <div class="tablewrap">
             <table>
-              <thead>
-                <tr><th>Secteur croisé</th><th>Participants en commun</th></tr>
-              </thead>
+              <thead><tr><th>Secteur</th><th>Participants communs</th></tr></thead>
               <tbody>
-                {% for row in trans.top_cross %}
-                  <tr><td>{{ row.secteur }}</td><td>{{ row.participants_communs }}</td></tr>
+                {% for r in trans.top_cross %}
+                  <tr><td>{{ r.secteur }}</td><td>{{ r.participants_communs }}</td></tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
         {% else %}
-          <p class="muted" style="margin-top:10px;">Pas de top secteurs croisés (soit scope global, soit aucun croisement sur la période).</p>
+          <p class="muted">Pas de croisements détectés sur cette période.</p>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h2>Démographie</h2>
+        <div class="grid two">
+          <div class="card" style="background:rgba(255,255,255,.03);">
+            <h3>Villes (Top 10)</h3>
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Ville</th><th>Participants</th></tr></thead>
+                <tbody>
+                  {% for v in demo.villes_top %}
+                    <tr><td>{{ v.ville }}</td><td>{{ v.count }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card" style="background:rgba(255,255,255,.03);">
+            <h3>Genre</h3>
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Genre</th><th>Participants</th></tr></thead>
+                <tbody>
+                  {% for k,v in demo.genre.items() %}
+                    <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="card" style="background:rgba(255,255,255,.03);">
+            <h3>Âge</h3>
+            <p class="muted">Âge moyen : {% if demo.age_avg is not none %}{{ demo.age_avg }} ans{% else %}N/A{% endif %}</p>
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Tranche</th><th>Participants</th></tr></thead>
+                <tbody>
+                  {% for k,v in demo.age_buckets.items() %}
+                    <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card" style="background:rgba(255,255,255,.03);">
+            <h3>QPV / Creil / Autres</h3>
+            <ul class="muted">
+              <li>QPV : {{ demo.qpv.qpv }} — Hors QPV : {{ demo.qpv.hors_qpv }} — Inconnu : {{ demo.qpv.inconnu }}</li>
+              <li>Creil : {{ demo.creil.creil }} — Hors Creil : {{ demo.creil.hors_creil }}</li>
+            </ul>
+            <h3>Type de public</h3>
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Type</th><th>Participants</th></tr></thead>
+                <tbody>
+                  {% for k,v in demo.type_public.items() %}
+                    <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Détails par atelier</h2>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Secteur</th>
+                <th>Atelier</th>
+                <th>Type</th>
+                <th>Sessions</th>
+                <th>Présences</th>
+                <th>Uniques</th>
+                <th>Heures anim.</th>
+                <th>Heures pers.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in stats.table_ateliers %}
+                <tr>
+                  <td>{{ row.secteur }}</td>
+                  <td>{{ row.nom }}</td>
+                  <td>{{ row.type_atelier }}</td>
+                  <td>{{ row.sessions }}</td>
+                  <td>{{ row.presences }}</td>
+                  <td>{{ row.uniques }}</td>
+                  <td>{{ row.hours_animator }}</td>
+                  <td>{{ row.hours_people }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Onglet PARTICIPANTS -->
+    <div class="tab-pane" data-tab="participants">
+      <div class="card">
+        <div class="inline" style="justify-content:space-between; align-items:center;">
+          <div>
+            <h2>Participants</h2>
+            <p class="muted">Parcours individuels : coordonnées, venues, ateliers et dates.</p>
+          </div>
+          <div class="tag">Total : {{ participants.total }}</div>
+        </div>
+        {% if participants.participants and participants.participants|length > 0 %}
+          <div class="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Participant</th>
+                  <th>Coordonnées</th>
+                  <th>Statistiques</th>
+                  <th>Sessions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for p in participants.participants %}
+                  <tr>
+                    <td>
+                      <strong>{{ p.prenom }} {{ p.nom }}</strong><br>
+                      <span class="tag">Genre : {{ p.genre or "N/A" }}</span>
+                      <span class="tag">Âge : {{ p.age if p.age is not none else "N/A" }}</span><br>
+                      <small>{{ p.ville or "Ville inconnue" }}{% if p.quartier %} — {{ p.quartier }}{% endif %}</small>
+                    </td>
+                    <td class="muted">
+                      <div>📞 {{ p.telephone or "N/A" }}</div>
+                      <div>✉️ {{ p.email or "N/A" }}</div>
+                      <div>QPV : {% if p.qpv %}Oui{% else %}Non{% endif %}</div>
+                    </td>
+                    <td class="muted">
+                      <div><strong>{{ p.visites }}</strong> venues</div>
+                      <div>
+                        Ateliers :
+                        <ul style="margin:6px 0 0 14px; padding:0;">
+                          {% for a in p.ateliers.values() %}
+                            <li>{{ a.atelier }} ({{ a.secteur }}) — {{ a.visites }} venue(s)</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    </td>
+                    <td class="muted">
+                      <ul style="margin:0; padding-left:14px;">
+                        {% for s in p.sessions %}
+                          <li>{{ s.date or "Date ?" }} — {{ s.atelier }} ({{ s.secteur }})</li>
+                        {% endfor %}
+                      </ul>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">Aucun participant sur ce filtre.</p>
         {% endif %}
       </div>
     </div>
-
-    <div class="card">
-      <div class="inline" style="justify-content:space-between; align-items:flex-end;">
-        <div>
-          <h2>Démographie</h2>
-          <p class="muted">Basé sur les <b>participants uniques</b> de la période (si les champs sont renseignés).</p>
-        </div>
-        <div class="tag">Âge moyen : {% if demo.age_avg is not none %}{{ demo.age_avg }}{% else %}ND{% endif %}</div>
-      </div>
-
-      <div class="grid two" style="margin-top:12px;">
-        <div class="card" style="background:rgba(255,255,255,.03);">
-          <h3>Tranches d’âge</h3>
-          <div class="tablewrap">
-            <table>
-              <thead><tr><th>Tranche</th><th>Nb</th></tr></thead>
-              <tbody>
-                {% for k, v in demo.age_buckets.items() %}
-                  <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card" style="background:rgba(255,255,255,.03);">
-          <h3>Genre</h3>
-          <div class="tablewrap">
-            <table>
-              <thead><tr><th>Genre</th><th>Nb</th></tr></thead>
-              <tbody>
-                {% for k, v in demo.genre.items() %}
-                  <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid two" style="margin-top:12px;">
-        <div class="card" style="background:rgba(255,255,255,.03);">
-          <h3>Territoire</h3>
-          <ul>
-            <li><b>Creil</b> : {{ demo.creil.creil }} — <b>Hors Creil</b> : {{ demo.creil.hors_creil }}</li>
-            <li><b>QPV</b> : {{ demo.qpv.qpv }} — <b>Hors QPV</b> : {{ demo.qpv.hors_qpv }} — <b>Inconnu</b> : {{ demo.qpv.inconnu }}</li>
-          </ul>
-          <h3 style="margin-top:10px;">Type de public</h3>
-          <div class="tablewrap">
-            <table>
-              <thead><tr><th>Type</th><th>Nb</th></tr></thead>
-              <tbody>
-                {% for k, v in demo.type_public.items() %}
-                  <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card" style="background:rgba(255,255,255,.03);">
-          <h3>Villes (Top 10)</h3>
-          <div class="tablewrap">
-            <table>
-              <thead><tr><th>Ville</th><th>Nb</th></tr></thead>
-              <tbody>
-                {% for row in demo.villes_top %}
-                  <tr><td>{{ row.ville }}</td><td>{{ row.count }}</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
   </div>
+
+  <script>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      const initial = params.get("tab") || "base";
+      const panes = document.querySelectorAll("[data-tab]");
+      const btns = document.querySelectorAll("[data-tab-btn]");
+
+      function activate(tab) {
+        panes.forEach(p => p.classList.toggle("active", p.getAttribute("data-tab") === tab));
+        btns.forEach(b => b.classList.toggle("active", b.getAttribute("data-tab-btn") === tab));
+        params.set("tab", tab);
+        const url = `${window.location.pathname}?${params.toString()}`;
+        window.history.replaceState({}, "", url);
+      }
+
+      btns.forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          activate(btn.getAttribute("data-tab-btn"));
+        });
+      });
+
+      activate(initial);
+    })();
+  </script>
 {% endblock %}
