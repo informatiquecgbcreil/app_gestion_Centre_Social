@@ -1,6 +1,51 @@
 {% extends "layout.html" %}
 
 {% block body %}
+<style>
+  .dash-hero {
+    background: linear-gradient(135deg, #0f62fe, #6c5ce7);
+    color: #fff;
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  }
+  .dash-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .kpi-card {
+    padding: 14px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 6px 16px rgba(15,98,254,0.08);
+    border: 1px solid #e5e8ff;
+  }
+  .kpi-label { color: #4a4a4a; font-size: 13px; margin-bottom: 4px; }
+  .kpi-value { font-size: 22px; font-weight: 700; color: #111; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.16);
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .progress-shell {
+    width: 100%; height: 8px; background: #eef2ff; border-radius: 6px; overflow: hidden;
+  }
+  .progress-bar {
+    height: 8px; border-radius: 6px;
+    background: linear-gradient(90deg, #0f62fe, #6c5ce7);
+  }
+  .tag-soft { padding: 2px 8px; border-radius: 10px; background: #eef2ff; font-size: 12px; color: #3b3b3b; }
+  .mini-table { border-collapse: collapse; width: 100%; }
+  .mini-table th, .mini-table td { border-bottom: 1px solid #f0f0f0; padding: 6px 4px; text-align: left; }
+</style>
+
 <h1>Stats & Impacts</h1>
 {% set current_mode = (flt.mode if flt.mode is defined else None) or "Tous modes" %}
 {% set current_secteur = flt.secteur or "Tous secteurs" %}
@@ -105,20 +150,73 @@
   <li><b>Heures participants</b> : {{ stats.kpi.hours_people }}</li>
 </ul>
 
-<hr>
+<div class="dash-grid" style="margin-bottom:14px;">
+  <div class="kpi-card">
+    <div class="kpi-label">Sessions</div>
+    <div class="kpi-value">{{ stats.kpi.sessions }}</div>
+    <div class="progress-shell" style="margin-top:8px;">
+      <div class="progress-bar" style="width:100%;"></div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Présences</div>
+    <div class="kpi-value">{{ stats.kpi.presences }}</div>
+    <div class="progress-shell" style="margin-top:8px;">
+      <div class="progress-bar" style="width:100%; background:linear-gradient(90deg,#ff6f61,#ff9f7f);"></div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Participants uniques</div>
+    <div class="kpi-value">{{ stats.kpi.uniques }}</div>
+    <div class="progress-shell" style="margin-top:8px;">
+      <div class="progress-bar" style="width:100%; background:linear-gradient(90deg,#34c759,#78e08f);"></div>
+    </div>
+    <div style="font-size:12px; color:#666; margin-top:6px;">Nouveaux : {{ stats.kpi.new_participants }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Moyenne / session</div>
+    <div class="kpi-value">{{ stats.kpi.avg_per_session }}</div>
+    <div style="font-size:12px; color:#666; margin-top:6px;">Heures anim. : {{ stats.kpi.hours_animator }} — Heures part. : {{ stats.kpi.hours_people }}</div>
+  </div>
+</div>
 
-<h2>Participation & fidélisation</h2>
-<ul>
-  <li><b>Fréquence moyenne</b> : {{ freq.freq_avg }}</li>
-  <li><b>Taux de retour (≥2)</b> : {{ freq.returning_rate }}%</li>
-  <li><b>Réguliers (≥4)</b> : {{ freq.regulars_4plus }}</li>
-</ul>
-<ul>
-  <li>1 venue : {{ freq.buckets["1"] }}</li>
-  <li>2–3 venues : {{ freq.buckets["2-3"] }}</li>
-  <li>4–6 venues : {{ freq.buckets["4-6"] }}</li>
-  <li>7+ venues : {{ freq.buckets["7+"] }}</li>
-</ul>
+<div class="kpi-card" style="margin-bottom:14px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+    <div style="font-weight:700;">Participation & fidélisation</div>
+    <span class="tag-soft">Fréquence moyenne : {{ freq.freq_avg }}</span>
+  </div>
+  <div class="dash-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+    <div>
+      <div class="kpi-label">Taux de retour (≥2)</div>
+      <div class="kpi-value">{{ freq.returning_rate }}%</div>
+    </div>
+    <div>
+      <div class="kpi-label">Réguliers (≥4)</div>
+      <div class="kpi-value">{{ freq.regulars_4plus }}</div>
+    </div>
+  </div>
+  <div style="margin-top:10px;">
+    {% set total_bucket = freq.buckets["1"] + freq.buckets["2-3"] + freq.buckets["4-6"] + freq.buckets["7+"] %}
+    {% set max_bucket = [freq.buckets["1"], freq.buckets["2-3"], freq.buckets["4-6"], freq.buckets["7+"]]|max %}
+    <table class="mini-table">
+      <thead><tr><th>Tranche de venues</th><th>Volume</th><th style="width:40%;">Répartition</th></tr></thead>
+      <tbody>
+        {% for label in ["1","2-3","4-6","7+"] %}
+          {% set val = freq.buckets[label] %}
+          <tr>
+            <td>{{ label }}</td>
+            <td><strong>{{ val }}</strong></td>
+            <td>
+              <div class="progress-shell">
+                <div class="progress-bar" style="width: {% if max_bucket > 0 %}{{ (val / max_bucket * 100)|round(0) }}{% else %}0{% endif %}%; background:linear-gradient(90deg,#ff9f0a,#ffcc80);"></div>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 
 <hr>
 <h2>Évolution ({{ (flt.group_by or 'MONTH')|upper }})</h2>
@@ -223,40 +321,56 @@
 
 <hr>
 
-<h2>Démographie</h2>
-<p><b>Âge moyen</b> : {% if demo.age_avg is not none %}{{ demo.age_avg }}{% else %}N/A{% endif %}</p>
-<p><b>Creil</b> : {{ demo.creil.creil }} — <b>Hors Creil</b> : {{ demo.creil.hors_creil }}</p>
-<p><b>QPV</b> : {{ demo.qpv.qpv }} — <b>Hors QPV</b> : {{ demo.qpv.hors_qpv }} — <b>Inconnu</b> : {{ demo.qpv.inconnu }}</p>
-
-<h3>Tranches d'âge</h3>
-<ul>
-{% for k,v in demo.age_buckets.items() %}
-  <li>{{ k }} : {{ v }}</li>
-{% endfor %}
-</ul>
-
-<h3>Genre</h3>
-<ul>
-{% for k,v in demo.genre.items() %}
-  <li>{{ k }} : {{ v }}</li>
-{% endfor %}
-</ul>
-
-<h3>Type public</h3>
-<ul>
-{% for k,v in demo.type_public.items() %}
-  <li>{{ k }} : {{ v }}</li>
-{% endfor %}
-</ul>
-
-<h3>Villes (Top 10)</h3>
-<ul>
-{% for row in demo.villes_top %}
-  <li>{{ row.ville }} : {{ row.count }}</li>
-{% endfor %}
-</ul>
-
-<hr>
+<div class="kpi-card" style="margin-bottom:16px;">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+    <h2 style="margin:0;">Démographie</h2>
+    <span class="tag-soft">Âge moyen : {% if demo.age_avg is not none %}{{ demo.age_avg }}{% else %}N/A{% endif %}</span>
+  </div>
+  <div class="dash-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+    <div>
+      <div class="kpi-label">Origine géographique</div>
+      <div class="kpi-value" style="font-size:16px;">Creil {{ demo.creil.creil }} / Hors {{ demo.creil.hors_creil }}</div>
+    </div>
+    <div>
+      <div class="kpi-label">QPV</div>
+      <div class="kpi-value" style="font-size:16px;">{{ demo.qpv.qpv }} QPV — {{ demo.qpv.hors_qpv }} hors — {{ demo.qpv.inconnu }} inc.</div>
+    </div>
+  </div>
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:10px;">
+    <div>
+      <div class="kpi-label">Tranches d'âge</div>
+      <table class="mini-table">
+        {% for k,v in demo.age_buckets.items() %}
+          <tr><td>{{ k }}</td><td style="text-align:right;"><strong>{{ v }}</strong></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div>
+      <div class="kpi-label">Genre</div>
+      <table class="mini-table">
+        {% for k,v in demo.genre.items() %}
+          <tr><td>{{ k }}</td><td style="text-align:right;"><strong>{{ v }}</strong></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div>
+      <div class="kpi-label">Type public</div>
+      <table class="mini-table">
+        {% for k,v in demo.type_public.items() %}
+          <tr><td>{{ k }}</td><td style="text-align:right;"><strong>{{ v }}</strong></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div>
+      <div class="kpi-label">Villes (Top 10)</div>
+      <table class="mini-table">
+        {% for row in demo.villes_top %}
+          <tr><td>{{ row.ville }}</td><td style="text-align:right;"><strong>{{ row.count }}</strong></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
 
 <h2>Ateliers</h2>
 {% if stats.table_ateliers|length > 0 %}
