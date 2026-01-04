@@ -14,6 +14,7 @@ from .engine import (
     compute_participation_frequency_stats,
     compute_transversalite_stats,
     compute_demography_stats,
+    compute_participants_stats,
     normalize_filters,
 )
 
@@ -53,6 +54,7 @@ def dashboard():
     trans = compute_transversalite_stats(flt)
     demo = compute_demography_stats(flt)
     occupancy = compute_occupancy_stats(flt)
+    participants = compute_participants_stats(flt)
 
     secteurs = []
     if getattr(current_user, "role", None) in ("finance", "financiere", "financière", "directrice", "admin_tech"):
@@ -83,4 +85,5 @@ def dashboard():
         secteurs=secteurs,
         ateliers=ateliers,
         occupancy=occupancy,
+        participants=participants,
     )
