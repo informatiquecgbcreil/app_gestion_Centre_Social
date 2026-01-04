@@ -238,14 +238,17 @@ def normalize_filters(
 
 def _resolve_secteur_scope(flt: StatsFilters) -> Optional[str]:
     role = getattr(current_user, "role", None)
-    is_admin = role in ("admin_tech", "directrice", "finance", "financiere", "financière")
+    is_admin = role in ("directrice", "finance", "financiere", "financière")
 
     user_sect = getattr(current_user, "secteur_assigne", None) or getattr(current_user, "secteur", None)
 
     if is_admin:
         return flt.secteur or None
-
-    return user_sect or flt.secteur or None
+    eff = user_sect or flt.secteur or None
+    if eff is None:
+        # Cloisonnement strict: sans secteur défini, pas d'accès cross-secteur.
+        return "__restricted__"
+    return eff
 
 
 def _apply_common_filters(query, flt: StatsFilters):
@@ -358,14 +361,29 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
                 "secteur": atelier.secteur,
                 "nom": atelier.nom,
                 "type_atelier": getattr(atelier, "type_atelier", None),
+                "sessions_planned": 0,
+                "sessions_real": 0,
+                "planned_capacity": 0,
+                "real_capacity": 0,
+                "planned_hours": 0.0,
+                "real_hours": 0.0,
                 "sessions": 0,
                 "presences": 0,
                 "uniques": set(),
                 "hours_animator": 0.0,
                 "hours_people": 0.0,
+                "dates": [],
             }
 
         per_atelier[aid]["sessions"] += 1
+        per_atelier[aid]["sessions_planned"] += 1
+
+        is_real = (session.statut or "").lower() != "annulee"
+        if is_real:
+            per_atelier[aid]["sessions_real"] += 1
+        session_date = session.rdv_date or session.date_session
+        if session_date:
+            per_atelier[aid]["dates"].append(session_date)
 
         mins = _session_duration_minutes(session, atelier)
         if mins <= 0:
@@ -373,6 +391,9 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
         h = mins / 60.0
         hours_animator += h
         per_atelier[aid]["hours_animator"] += h
+        per_atelier[aid]["planned_hours"] += h
+        if is_real:
+            per_atelier[aid]["real_hours"] += h
 
         count_p = pres_by_session.get(session.id, 0)
         if (session.session_type or "").upper() == "COLLECTIF":
@@ -382,6 +403,10 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
             if count_p > 0:
                 hours_people += h
                 per_atelier[aid]["hours_people"] += h
+        cap = session.capacite if session.capacite is not None else getattr(atelier, "capacite_defaut", 0) or 0
+        per_atelier[aid]["planned_capacity"] += int(cap or 0)
+        if is_real:
+            per_atelier[aid]["real_capacity"] += int(cap or 0)
 
     activity_duration_days = None
     if sessions_rows:
@@ -470,6 +495,10 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
 
     table_ateliers = []
     for aid, obj in per_atelier.items():
+        activity_days = None
+        if obj["dates"]:
+            dmin, dmax = min(obj["dates"]), max(obj["dates"])
+            activity_days = (dmax - dmin).days
         table_ateliers.append(
             {
                 "atelier_id": aid,
@@ -720,3 +749,68 @@ def compute_demography_stats(flt: StatsFilters) -> Dict[str, Any]:
         "qpv": {"qpv": qpv, "hors_qpv": hors_qpv, "inconnu": inconnu},
         "type_public": dict(type_public_counts),
     }
+
+
+def compute_participants_stats(flt: StatsFilters) -> Dict[str, Any]:
+    sessions_rows, presences = _get_scoped_sessions_and_presences(flt)
+    if not presences:
+        return {"participants": [], "total": 0}
+
+    session_map: Dict[int, Tuple[SessionActivite, AtelierActivite]] = {
+        s.id: (s, a) for s, a in sessions_rows
+    }
+    pids = sorted(set(p.participant_id for p in presences))
+    participants = {p.id: p for p in db.session.query(Participant).filter(Participant.id.in_(pids)).all()}
+
+    per_participant: Dict[int, Dict[str, Any]] = {}
+
+    for p in presences:
+        pid = p.participant_id
+        participant = participants.get(pid)
+        sess_tuple = session_map.get(p.session_id)
+        if not participant or not sess_tuple:
+            continue
+        session, atelier = sess_tuple
+        date_visit = session.rdv_date or session.date_session
+        aid = atelier.id
+
+        if pid not in per_participant:
+            per_participant[pid] = {
+                "id": pid,
+                "nom": participant.nom,
+                "prenom": participant.prenom,
+                "age": participant.age,
+                "genre": participant.genre,
+                "ville": participant.ville,
+                "quartier": participant.quartier.nom if participant.quartier else None,
+                "qpv": participant.quartier.is_qpv if participant.quartier else False,
+                "telephone": participant.telephone,
+                "email": participant.email,
+                "sessions": [],
+                "ateliers": {},
+                "visites": 0,
+            }
+
+        per_participant[pid]["visites"] += 1
+        per_participant[pid]["sessions"].append(
+            {
+                "date": date_visit,
+                "atelier": atelier.nom,
+                "atelier_id": aid,
+                "secteur": atelier.secteur,
+            }
+        )
+        a_map = per_participant[pid]["ateliers"].setdefault(
+            aid, {"atelier": atelier.nom, "secteur": atelier.secteur, "visites": 0, "dates": []}
+        )
+        a_map["visites"] += 1
+        if date_visit:
+            a_map["dates"].append(date_visit)
+
+    for obj in per_participant.values():
+        obj["sessions"].sort(key=lambda s: s["date"] or date.max, reverse=True)
+        for a in obj["ateliers"].values():
+            a["dates"].sort(reverse=True)
+
+    participants_list = sorted(per_participant.values(), key=lambda x: (x["nom"] or "", x["prenom"] or ""))
+    return {"participants": participants_list, "total": len(participants_list)}
