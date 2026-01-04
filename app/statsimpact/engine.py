@@ -238,14 +238,17 @@ def normalize_filters(
 
 def _resolve_secteur_scope(flt: StatsFilters) -> Optional[str]:
     role = getattr(current_user, "role", None)
-    is_admin = role in ("admin_tech", "directrice", "finance", "financiere", "financière")
+    is_admin = role in ("directrice", "finance", "financiere", "financière")
 
     user_sect = getattr(current_user, "secteur_assigne", None) or getattr(current_user, "secteur", None)
 
     if is_admin:
         return flt.secteur or None
-
-    return user_sect or flt.secteur or None
+    eff = user_sect or flt.secteur or None
+    if eff is None:
+        # Cloisonnement strict: sans secteur défini, pas d'accès cross-secteur.
+        return "__restricted__"
+    return eff
 
 
 def _apply_common_filters(query, flt: StatsFilters):
@@ -267,18 +270,47 @@ def _apply_common_filters(query, flt: StatsFilters):
     return query
 
 
+def _query_sessions_for_period(flt: StatsFilters, date_from: Optional[date], date_to: Optional[date]):
+    query = db.session.query(SessionActivite, AtelierActivite).join(
+        AtelierActivite, AtelierActivite.id == SessionActivite.atelier_id
+    )
+    query = query.filter(SessionActivite.is_deleted.is_(False))
+    query = query.filter(AtelierActivite.is_deleted.is_(False))
+
+    eff_secteur = _resolve_secteur_scope(flt)
+    if eff_secteur:
+        query = query.filter(AtelierActivite.secteur == eff_secteur)
+
+    if flt.atelier_id:
+        query = query.filter(AtelierActivite.id == flt.atelier_id)
+
+    if date_from:
+        query = query.filter(_session_date_expr() >= date_from)
+    if date_to:
+        query = query.filter(_session_date_expr() <= date_to)
+
+    return query
+
+
 # ---------------------------
 # Main compute (Phase 1)
 # ---------------------------
 
 def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
-    base = db.session.query(SessionActivite, AtelierActivite).join(
-        AtelierActivite, AtelierActivite.id == SessionActivite.atelier_id
-    )
-    base = _apply_common_filters(base, flt)
-
-    sessions_rows: List[Tuple[SessionActivite, AtelierActivite]] = base.all()
+    sessions_rows: List[Tuple[SessionActivite, AtelierActivite]] = _query_sessions_for_period(
+        flt, flt.date_from, flt.date_to
+    ).all()
     session_ids = [s.id for s, _ in sessions_rows]
+
+    previous_atelier_ids: Optional[Set[int]] = None
+    if flt.date_from and flt.date_to and flt.date_to >= flt.date_from:
+        span_days = (flt.date_to - flt.date_from).days + 1
+        prev_end = flt.date_from - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=span_days - 1) if span_days > 0 else prev_end
+        prev_rows: List[Tuple[SessionActivite, AtelierActivite]] = _query_sessions_for_period(
+            flt, prev_start, prev_end
+        ).all()
+        previous_atelier_ids = {a.id for _, a in prev_rows}
 
     if session_ids:
         presences: List[PresenceActivite] = (
@@ -329,14 +361,29 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
                 "secteur": atelier.secteur,
                 "nom": atelier.nom,
                 "type_atelier": getattr(atelier, "type_atelier", None),
+                "sessions_planned": 0,
+                "sessions_real": 0,
+                "planned_capacity": 0,
+                "real_capacity": 0,
+                "planned_hours": 0.0,
+                "real_hours": 0.0,
                 "sessions": 0,
                 "presences": 0,
                 "uniques": set(),
                 "hours_animator": 0.0,
                 "hours_people": 0.0,
+                "dates": [],
             }
 
         per_atelier[aid]["sessions"] += 1
+        per_atelier[aid]["sessions_planned"] += 1
+
+        is_real = (session.statut or "").lower() != "annulee"
+        if is_real:
+            per_atelier[aid]["sessions_real"] += 1
+        session_date = session.rdv_date or session.date_session
+        if session_date:
+            per_atelier[aid]["dates"].append(session_date)
 
         mins = _session_duration_minutes(session, atelier)
         if mins <= 0:
@@ -344,6 +391,9 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
         h = mins / 60.0
         hours_animator += h
         per_atelier[aid]["hours_animator"] += h
+        per_atelier[aid]["planned_hours"] += h
+        if is_real:
+            per_atelier[aid]["real_hours"] += h
 
         count_p = pres_by_session.get(session.id, 0)
         if (session.session_type or "").upper() == "COLLECTIF":
@@ -353,6 +403,10 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
             if count_p > 0:
                 hours_people += h
                 per_atelier[aid]["hours_people"] += h
+        cap = session.capacite if session.capacite is not None else getattr(atelier, "capacite_defaut", 0) or 0
+        per_atelier[aid]["planned_capacity"] += int(cap or 0)
+        if is_real:
+            per_atelier[aid]["real_capacity"] += int(cap or 0)
 
     activity_duration_days = None
     if sessions_rows:
@@ -441,6 +495,10 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
 
     table_ateliers = []
     for aid, obj in per_atelier.items():
+        activity_days = None
+        if obj["dates"]:
+            dmin, dmax = min(obj["dates"]), max(obj["dates"])
+            activity_days = (dmax - dmin).days
         table_ateliers.append(
             {
                 "atelier_id": aid,
@@ -452,9 +510,60 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
                 "uniques": len(obj["uniques"]),
                 "hours_animator": round(float(obj["hours_animator"]), 2),
                 "hours_people": round(float(obj["hours_people"]), 2),
+                "is_new_vs_previous": bool(previous_atelier_ids is not None and aid not in previous_atelier_ids),
+                "sessions_planned": int(obj["sessions_planned"]),
+                "sessions_real": int(obj["sessions_real"]),
+                "planned_capacity": int(obj["planned_capacity"]),
+                "real_capacity": int(obj["real_capacity"]),
+                "planned_hours": round(float(obj["planned_hours"]), 2),
+                "real_hours": round(float(obj["real_hours"]), 2),
+                "occupation_rate": round(
+                    (int(obj["presences"]) / obj["real_capacity"] * 100.0) if obj["real_capacity"] else 0.0, 1
+                ),
+                "avg_per_session_real": round(
+                    (int(obj["presences"]) / obj["sessions_real"]) if obj["sessions_real"] else 0.0, 2
+                ),
+                "activity_duration_days": activity_days,
             }
         )
     table_ateliers.sort(key=lambda r: (r["presences"], r["sessions"]), reverse=True)
+
+    top_ateliers = table_ateliers[:3]
+
+    sectors_agg: Dict[str, Dict[str, Any]] = {}
+    for row in table_ateliers:
+        sect = row["secteur"] or "(Non renseigné)"
+        if sect not in sectors_agg:
+            sectors_agg[sect] = {
+                "secteur": sect,
+                "sessions": 0,
+                "presences": 0,
+                "uniques": 0,
+                "hours_animator": 0.0,
+                "hours_people": 0.0,
+            }
+        sectors_agg[sect]["sessions"] += row["sessions"]
+        sectors_agg[sect]["presences"] += row["presences"]
+        sectors_agg[sect]["uniques"] += row["uniques"]
+        sectors_agg[sect]["hours_animator"] += float(row["hours_animator"])
+        sectors_agg[sect]["hours_people"] += float(row["hours_people"])
+
+    sectors_summary = [
+        {
+            "secteur": v["secteur"],
+            "sessions": int(v["sessions"]),
+            "presences": int(v["presences"]),
+            "uniques": int(v["uniques"]),
+            "hours_animator": round(float(v["hours_animator"]), 2),
+            "hours_people": round(float(v["hours_people"]), 2),
+        }
+        for v in sectors_agg.values()
+    ]
+    sectors_summary.sort(key=lambda r: (r["presences"], r["sessions"]), reverse=True)
+
+    base_by_secteur: Dict[str, List[Dict[str, Any]]] = {}
+    for row in table_ateliers:
+        base_by_secteur.setdefault(row["secteur"] or "(Non renseigné)", []).append(row)
 
     return {
         "kpi": {
@@ -470,6 +579,10 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
         "time_series": time_series,
         "heatmap": {"days": days, "buckets": bucket_labels, "data": heat},
         "table_ateliers": table_ateliers,
+        "top_ateliers": top_ateliers,
+        "sectors_summary": sectors_summary,
+        "has_previous_period": previous_atelier_ids is not None,
+        "base_by_secteur": base_by_secteur,
     }
 
 
@@ -654,3 +767,71 @@ def compute_demography_stats(flt: StatsFilters) -> Dict[str, Any]:
         "qpv": {"qpv": qpv, "hors_qpv": hors_qpv, "inconnu": inconnu},
         "type_public": dict(type_public_counts),
     }
+
+
+def compute_participants_stats(flt: StatsFilters) -> Dict[str, Any]:
+    sessions_rows, presences = _get_scoped_sessions_and_presences(flt)
+    if not presences:
+        return {"participants": [], "total": 0}
+
+    session_map: Dict[int, Tuple[SessionActivite, AtelierActivite]] = {
+        s.id: (s, a) for s, a in sessions_rows
+    }
+    pids = sorted(set(p.participant_id for p in presences))
+    participants = {p.id: p for p in db.session.query(Participant).filter(Participant.id.in_(pids)).all()}
+
+    per_participant: Dict[int, Dict[str, Any]] = {}
+
+    for p in presences:
+        pid = p.participant_id
+        participant = participants.get(pid)
+        sess_tuple = session_map.get(p.session_id)
+        if not participant or not sess_tuple:
+            continue
+        session, atelier = sess_tuple
+        date_visit = session.rdv_date or session.date_session
+        aid = atelier.id
+
+        if pid not in per_participant:
+            per_participant[pid] = {
+                "id": pid,
+                "nom": participant.nom,
+                "prenom": participant.prenom,
+                "age": participant.age,
+                "genre": participant.genre,
+                "date_naissance": participant.date_naissance,
+                "ville": participant.ville,
+                "quartier": participant.quartier.nom if participant.quartier else None,
+                "quartier_id": participant.quartier_id,
+                "qpv": participant.quartier.is_qpv if participant.quartier else False,
+                "telephone": participant.telephone,
+                "email": participant.email,
+                "type_public": getattr(participant, "type_public", None) or "H",
+                "sessions": [],
+                "ateliers": {},
+                "visites": 0,
+            }
+
+        per_participant[pid]["visites"] += 1
+        per_participant[pid]["sessions"].append(
+            {
+                "date": date_visit,
+                "atelier": atelier.nom,
+                "atelier_id": aid,
+                "secteur": atelier.secteur,
+            }
+        )
+        a_map = per_participant[pid]["ateliers"].setdefault(
+            aid, {"atelier": atelier.nom, "secteur": atelier.secteur, "visites": 0, "dates": []}
+        )
+        a_map["visites"] += 1
+        if date_visit:
+            a_map["dates"].append(date_visit)
+
+    for obj in per_participant.values():
+        obj["sessions"].sort(key=lambda s: s["date"] or date.max, reverse=True)
+        for a in obj["ateliers"].values():
+            a["dates"].sort(reverse=True)
+
+    participants_list = sorted(per_participant.values(), key=lambda x: (x["nom"] or "", x["prenom"] or ""))
+    return {"participants": participants_list, "total": len(participants_list)}

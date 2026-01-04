@@ -209,6 +209,8 @@ def kiosk_session(token: str):
             ville = (request.form.get("ville") or "").strip() or None
             email = (request.form.get("email") or "").strip() or None
             telephone = (request.form.get("telephone") or "").strip() or None
+            genre = (request.form.get("genre") or "").strip() or None
+            date_naissance = request.form.get("date_naissance") or None
             quartier_id = request.form.get("quartier_id") or None
 
             if not nom or not prenom:
@@ -219,12 +221,21 @@ def kiosk_session(token: str):
             if (ville or "").strip().lower() != "creil":
                 qid = None
 
+            dn = None
+            if date_naissance:
+                try:
+                    dn = datetime.strptime(date_naissance, "%Y-%m-%d").date()
+                except Exception:
+                    dn = None
+
             p = Participant(
                 nom=nom,
                 prenom=prenom,
                 ville=ville,
                 email=email,
                 telephone=telephone,
+                genre=genre,
+                date_naissance=dn,
                 quartier_id=qid,
             )
             db.session.add(p)
