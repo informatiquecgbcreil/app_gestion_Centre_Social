@@ -29,6 +29,7 @@ def create_app():
     from app.activite import bp as activite_bp
     from app.kiosk import bp as kiosk_bp
     from app.statsimpact.routes import bp as statsimpact_bp
+    from app.ateliers.routes import bp as ateliers_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
@@ -38,6 +39,7 @@ def create_app():
     app.register_blueprint(activite_bp)
     app.register_blueprint(kiosk_bp)
     app.register_blueprint(statsimpact_bp)
+    app.register_blueprint(ateliers_bp)
 
 
     def ensure_schema():
