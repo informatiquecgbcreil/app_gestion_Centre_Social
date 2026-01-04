@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from flask import Blueprint, abort, render_template, request, redirect, url_for, flash
+from werkzeug.routing import BuildError
 from flask_login import login_required, current_user
 
 from app.models import AtelierActivite, Participant, Quartier
@@ -134,6 +135,12 @@ def dashboard():
 
     quartiers = Quartier.query.order_by(Quartier.nom.asc()).all()
 
+    ateliers_url = None
+    try:
+        ateliers_url = url_for("ateliers.list_ateliers")
+    except BuildError:
+        ateliers_url = None
+
     return render_template(
         ["statsimpact/dashboard.html", "statsimpact_dashboard.html"],
         flt=flt,
@@ -146,4 +153,5 @@ def dashboard():
         occupancy=occupancy,
         participants=participants,
         quartiers=quartiers,
+        ateliers_url=ateliers_url,
     )
