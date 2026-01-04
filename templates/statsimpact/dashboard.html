@@ -2,14 +2,29 @@
 
 {% block body %}
   <div class="stack">
-    <div class="card">
-      <h1>Stats &amp; Impact</h1>
-      <p>Mode <b>Volume &amp; activité</b> — dashboard + détails. (Les autres onglets arrivent.)</p>
+  <div class="card">
+    <h1>Stats &amp; Impact</h1>
+    <p>Mode <b>Volume &amp; activité</b> — dashboard + détails. (Les autres onglets arrivent.)</p>
+    {% set current_mode = (flt.mode if flt.mode is defined else None) or "Tous modes" %}
+    {% set current_secteur = flt.secteur or "Tous secteurs" %}
+    <p class="muted">Période : {{ flt.date_from }} → {{ flt.date_to }} — Mode : {{ current_mode }} — Secteur : {{ current_secteur }}</p>
 
-      <form method="get" class="row three" style="margin-top:12px;">
-        <div>
-          <label for="date_from">Du</label>
-          <input id="date_from" name="date_from" type="date" value="{{ flt.date_from }}">
+    <style>
+      .spark-row{display:flex; align-items:flex-end; gap:6px; margin-top:4px;}
+      .spark-bar{width:12px; border-radius:4px; background:rgba(106,165,255,.55);}
+      .spark-bar.presences{background:rgba(88,204,152,.55);}
+      .spark-bar.uniques{background:rgba(199,146,234,.65);}
+      .heat-cell{min-width:42px; text-align:center; padding:8px 10px; border-radius:10px; font-weight:700;}
+      .heat-0{background:color-mix(in srgb, var(--border) 15%, transparent); color:var(--muted);}
+      .heat-low{background:rgba(106,165,255,.22); color:#f4f7ff;}
+      .heat-mid{background:rgba(106,165,255,.35); color:#fff;}
+      .heat-high{background:rgba(106,165,255,.55); color:#fff;}
+    </style>
+
+    <form method="get" class="row three" style="margin-top:12px;">
+      <div>
+        <label for="date_from">Du</label>
+        <input id="date_from" name="date_from" type="date" value="{{ flt.date_from }}">
         </div>
         <div>
           <label for="date_to">Au</label>
@@ -104,30 +119,48 @@
       <div class="grid two">
         <div class="card" style="background:rgba(255,255,255,.03);">
           <h3>Évolution ({{ (flt.group_by or 'MONTH')|upper }})</h3>
-          <div class="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Mois</th>
-                  <th>Sessions</th>
-                  <th>Présences</th>
-                  <th>Uniques</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for m in (stats.time_series if stats.time_series is defined else stats.monthly_series) %}
-                  <tr>
-                    <td><b>{{ m.label }}</b></td>
-                    <td>{{ m.sessions }}</td>
-                    <td>{{ m.presences }}</td>
-                    <td>{{ m.uniques }}</td>
-                  </tr>
-                {% else %}
-                  <tr><td colspan="4" class="muted">Aucune donnée sur la période.</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
+          {% set ts = (stats.time_series if stats.time_series is defined else stats.monthly_series) or [] %}
+          {% set sessions_vals = ts|map(attribute='sessions')|list %}
+          {% set pres_vals = ts|map(attribute='presences')|list %}
+          {% set uniq_vals = ts|map(attribute='uniques')|list %}
+          {% set max_sess = sessions_vals|max if sessions_vals else 0 %}
+          {% set max_pres = pres_vals|max if pres_vals else 0 %}
+          {% set max_uniq = uniq_vals|max if uniq_vals else 0 %}
+          {% if ts %}
+            <div class="tablewrap">
+              <div>
+                <div class="muted">Sessions</div>
+                <div class="spark-row">
+                  {% for m in ts %}
+                    {% set h = 6 if max_sess==0 else 6 + ((m.sessions / max_sess) * 34) %}
+                    <span class="spark-bar" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.sessions }}"></span>
+                  {% endfor %}
+                </div>
+              </div>
+              <div>
+                <div class="muted" style="margin-top:10px;">Présences</div>
+                <div class="spark-row">
+                  {% for m in ts %}
+                    {% set h = 6 if max_pres==0 else 6 + ((m.presences / max_pres) * 34) %}
+                    <span class="spark-bar presences" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.presences }}"></span>
+                  {% endfor %}
+                </div>
+              </div>
+              <div>
+                <div class="muted" style="margin-top:10px;">Uniques</div>
+                <div class="spark-row">
+                  {% for m in ts %}
+                    {% set h = 6 if max_uniq==0 else 6 + ((m.uniques / max_uniq) * 34) %}
+                    <span class="spark-bar uniques" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.uniques }}"></span>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          {% else %}
+            <div class="muted" style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+              <span aria-hidden="true">⚠️</span> Aucune donnée.
+            </div>
+          {% endif %}
         </div>
 
         <div class="card" style="background:rgba(255,255,255,.03);">
@@ -146,15 +179,28 @@
               <tbody>
                 {% for d in stats.heatmap.days %}
                   <tr>
-                    <td><b>{{ d }}</b></td>
+                    {% set row_total = stats.heatmap.data[d].values()|sum %}
+                    <td>
+                      <div style="display:flex; align-items:center; gap:8px;">
+                        <b>{{ d }}</b>
+                        {% if row_total == 0 %}
+                          <span class="tag" style="background:color-mix(in srgb, var(--surface) 75%, var(--border));">Pas d’heure de début renseignée</span>
+                        {% endif %}
+                      </div>
+                    </td>
                     {% for b in stats.heatmap.buckets %}
                       {% set v = stats.heatmap.data[d][b] %}
+                      {% set level = "heat-0" %}
+                      {% if v > 0 and v <= 1 %}
+                        {% set level = "heat-low" %}
+                      {% elif v > 1 and v <= 3 %}
+                        {% set level = "heat-mid" %}
+                      {% elif v > 3 %}
+                        {% set level = "heat-high" %}
+                      {% endif %}
                       <td>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                          <div style="flex:1; height:10px; border-radius:999px; border:1px solid rgba(255,255,255,.10); overflow:hidden;">
-                            <div style="height:100%; width:{{ 5 + (v*12) }}px; background:rgba(106,165,255,.55);"></div>
-                          </div>
-                          <div style="width:22px; text-align:right;" class="muted">{{ v }}</div>
+                        <div class="heat-cell {{ level }}" title="{{ d }} · {{ b }}">
+                          {{ v }}
                         </div>
                       </td>
                     {% endfor %}

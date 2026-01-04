@@ -47,6 +47,21 @@
 </style>
 
 <h1>Stats & Impacts</h1>
+{% set current_mode = (flt.mode if flt.mode is defined else None) or "Tous modes" %}
+{% set current_secteur = flt.secteur or "Tous secteurs" %}
+<p class="muted">Période : {{ flt.date_from }} → {{ flt.date_to }} — Mode : {{ current_mode }} — Secteur : {{ current_secteur }}</p>
+
+<style>
+  .spark-row{display:flex; align-items:flex-end; gap:6px; margin-top:4px;}
+  .spark-bar{width:12px; border-radius:4px; background:rgba(106,165,255,.55);}
+  .spark-bar.presences{background:rgba(88,204,152,.55);}
+  .spark-bar.uniques{background:rgba(199,146,234,.65);}
+  .heat-cell{min-width:42px; text-align:center; padding:6px 10px; border-radius:10px; font-weight:700;}
+  .heat-0{background:color-mix(in srgb, var(--border) 15%, transparent); color:var(--muted);}
+  .heat-low{background:rgba(106,165,255,.22); color:#f4f7ff;}
+  .heat-mid{background:rgba(106,165,255,.35); color:#fff;}
+  .heat-high{background:rgba(106,165,255,.55); color:#fff;}
+</style>
 
 <form method="get" style="margin-bottom: 16px;">
   <div style="display:flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
@@ -76,12 +91,16 @@
 
     <div>
       <label>Du</label><br>
-      <input type="date" name="date_from" value="{{ flt.date_from }}">
+      {% set date_from_value = flt.date_from.isoformat() if flt.date_from else "" %}
+      <input type="date" name="date_from" value="{{ date_from_value }}">
+      <div class="help">Par défaut, l'année en cours est appliquée si aucune date n'est renseignée.</div>
     </div>
 
     <div>
       <label>Au</label><br>
-      <input type="date" name="date_to" value="{{ flt.date_to }}">
+      {% set date_to_value = flt.date_to.isoformat() if flt.date_to else "" %}
+      <input type="date" name="date_to" value="{{ date_to_value }}">
+      <div class="help">Adaptez la période pour affiner vos KPI ; vide = bornes de l'année courante.</div>
     </div>
 
     <div>
@@ -91,6 +110,7 @@
         <option value="{{ g }}" {% if flt.group_by==g %}selected{% endif %}>{{ g }}</option>
         {% endfor %}
       </select>
+      <div class="help">Mode d'agrégation des courbes et tableaux (jour, mois, trimestre, année).</div>
     </div>
 
     <div>
@@ -99,20 +119,36 @@
   </div>
 </form>
 
-<div class="dash-hero">
-  <div style="display:flex; flex-wrap:wrap; gap:14px; align-items:center; justify-content:space-between;">
-    <div>
-      <div class="pill">Vue dynamique</div>
-      <h2 style="margin:6px 0 4px 0; font-size:26px;">Impact global sur la période</h2>
-      <p style="margin:0; opacity:0.9;">Sessions, présences, fidélisation et démographie en un coup d’œil.</p>
-    </div>
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <div class="pill" style="background:rgba(255,255,255,0.24);">Sessions : {{ stats.kpi.sessions }}</div>
-      <div class="pill" style="background:rgba(255,255,255,0.24);">Présences : {{ stats.kpi.presences }}</div>
-      <div class="pill" style="background:rgba(255,255,255,0.24);">Uniques : {{ stats.kpi.uniques }}</div>
-    </div>
-  </div>
-</div>
+{% if (not flt.atelier_id) and flt.group_by and flt.group_by != "MONTH" %}
+  <div class="flash warning">Sélectionnez un atelier pour ce mode de lecture afin d'éviter des agrégations trop larges.</div>
+{% endif %}
+
+{% set kpi_values = [
+  stats.kpi.sessions or 0,
+  stats.kpi.presences or 0,
+  stats.kpi.uniques or 0,
+  stats.kpi.new_participants or 0,
+  stats.kpi.avg_per_session or 0,
+  stats.kpi.hours_animator or 0,
+  stats.kpi.hours_people or 0,
+  stats.kpi.activity_duration_days or 0,
+] %}
+{% if kpi_values|sum == 0 %}
+  <div class="flash warning">Filtres trop restrictifs : aucun indicateur n'est ressorti sur la période choisie.</div>
+{% endif %}
+
+<hr>
+
+<h2>KPI</h2>
+<ul>
+  <li><b>Sessions</b> : {{ stats.kpi.sessions }}</li>
+  <li><b>Présences</b> : {{ stats.kpi.presences }}</li>
+  <li><b>Participants uniques</b> : {{ stats.kpi.uniques }}</li>
+  <li><b>Nouveaux participants</b> : {{ stats.kpi.new_participants }}</li>
+  <li><b>Moyenne / session</b> : {{ stats.kpi.avg_per_session }}</li>
+  <li><b>Heures animateur</b> : {{ stats.kpi.hours_animator }}</li>
+  <li><b>Heures participants</b> : {{ stats.kpi.hours_people }}</li>
+</ul>
 
 <div class="dash-grid" style="margin-bottom:14px;">
   <div class="kpi-card">
@@ -182,6 +218,94 @@
   </div>
 </div>
 
+<hr>
+<h2>Évolution ({{ (flt.group_by or 'MONTH')|upper }})</h2>
+{% set ts = (stats.time_series if stats.time_series is defined else stats.monthly_series) or [] %}
+{% set sessions_vals = ts|map(attribute='sessions')|list %}
+{% set pres_vals = ts|map(attribute='presences')|list %}
+{% set uniq_vals = ts|map(attribute='uniques')|list %}
+{% set max_sess = sessions_vals|max if sessions_vals else 0 %}
+{% set max_pres = pres_vals|max if pres_vals else 0 %}
+{% set max_uniq = uniq_vals|max if uniq_vals else 0 %}
+{% if ts %}
+  <div style="display:flex; flex-direction:column; gap:8px; max-width:640px;">
+    <div>
+      <div class="muted">Sessions</div>
+      <div class="spark-row">
+        {% for m in ts %}
+          {% set h = 6 if max_sess==0 else 6 + ((m.sessions / max_sess) * 34) %}
+          <span class="spark-bar" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.sessions }}"></span>
+        {% endfor %}
+      </div>
+    </div>
+    <div>
+      <div class="muted">Présences</div>
+      <div class="spark-row">
+        {% for m in ts %}
+          {% set h = 6 if max_pres==0 else 6 + ((m.presences / max_pres) * 34) %}
+          <span class="spark-bar presences" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.presences }}"></span>
+        {% endfor %}
+      </div>
+    </div>
+    <div>
+      <div class="muted">Uniques</div>
+      <div class="spark-row">
+        {% for m in ts %}
+          {% set h = 6 if max_uniq==0 else 6 + ((m.uniques / max_uniq) * 34) %}
+          <span class="spark-bar uniques" style="height:{{ h|round(0, 'ceil') }}px" title="{{ m.label }} : {{ m.uniques }}"></span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% else %}
+  <p class="muted" style="display:flex; align-items:center; gap:6px;"><span aria-hidden="true">⚠️</span> Aucune donnée.</p>
+{% endif %}
+
+<h2 style="margin-top:20px;">Heatmap (sessions par jour/créneau)</h2>
+<p class="muted">Basée sur l’heure de début (si renseignée). Si pas d’heure, pas de case.</p>
+<div class="tablewrap" style="overflow-x:auto;">
+  <table style="min-width:680px;" border="0" cellpadding="6" cellspacing="0">
+    <thead>
+      <tr>
+        <th align="left">Jour</th>
+        {% for b in stats.heatmap.buckets %}
+          <th align="center">{{ b }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in stats.heatmap.days %}
+        {% set row_total = stats.heatmap.data[d].values()|sum %}
+        <tr>
+          <td>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <b>{{ d }}</b>
+              {% if row_total == 0 %}
+                <span class="tag" style="background:color-mix(in srgb, var(--surface) 75%, var(--border));">Pas d’heure de début renseignée</span>
+              {% endif %}
+            </div>
+          </td>
+          {% for b in stats.heatmap.buckets %}
+            {% set v = stats.heatmap.data[d][b] %}
+            {% set level = "heat-0" %}
+            {% if v > 0 and v <= 1 %}
+              {% set level = "heat-low" %}
+            {% elif v > 1 and v <= 3 %}
+              {% set level = "heat-mid" %}
+            {% elif v > 3 %}
+              {% set level = "heat-high" %}
+            {% endif %}
+            <td align="center">
+              <div class="heat-cell {{ level }}" title="{{ d }} · {{ b }}">{{ v }}</div>
+            </td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<hr>
 {% include "statsimpact/_occupancy_block.html" %}
 
 <h2>Transversalité</h2>
@@ -251,12 +375,12 @@
 <h2>Ateliers</h2>
 {% if stats.table_ateliers|length > 0 %}
   {% if stats.top_ateliers %}
-    <div class="card" style="margin-bottom:12px; padding:12px; background:linear-gradient(135deg,#fdfbfb,#ebedee); border:1px solid #e6e6e6; box-shadow:0 10px 20px rgba(0,0,0,0.04);">
-      <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;">
-        <div style="font-weight:700; font-size:18px;">Top 3 ateliers</div>
+    <div class="card" style="margin-bottom:12px; padding:12px; background:#f7fbff; border:1px solid #d6e9ff;">
+      <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+        <div><strong>Top 3 ateliers</strong></div>
         {% for r in stats.top_ateliers %}
-          <div style="padding:10px 12px; border-radius:10px; background:#fff; border:1px solid #d6e9ff; display:flex; flex-direction:column; gap:6px; min-width:240px; box-shadow:0 6px 16px rgba(0,0,0,0.06);">
-            <div style="display:flex; align-items:center; gap:8px; font-weight:bold; color:#0f62fe;">
+          <div style="padding:8px 12px; border-radius:6px; background:#fff; border:1px solid #d6e9ff; display:flex; flex-direction:column; gap:4px; min-width:200px;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight:bold;">
               <span>{{ loop.index }}.</span>
               <span>{{ r.secteur }} — {{ r.nom }}</span>
               {% if stats.has_previous_period and r.is_new_vs_previous %}
@@ -268,11 +392,6 @@
               <span>Présences : <strong>{{ r.presences }}</strong></span>
               <span>Uniques : <strong>{{ r.uniques }}</strong></span>
             </div>
-            {% set max_tp = [r.presences, r.sessions, r.uniques]|max %}
-            {% set denom = max_tp if max_tp > 0 else 1 %}
-            <div class="progress-shell">
-              <div class="progress-bar" style="width: {{ (r.presences/denom*100)|round(0) }}%;"></div>
-            </div>
           </div>
         {% endfor %}
       </div>
@@ -280,34 +399,28 @@
   {% endif %}
 
   {% if stats.sectors_summary and stats.sectors_summary|length > 0 %}
-    {% set max_pres = (stats.sectors_summary|max(attribute='presences')).presences if stats.sectors_summary else 0 %}
-    <div class="card" style="margin-bottom:12px; padding:12px; border:1px solid #eee; box-shadow:0 6px 16px rgba(0,0,0,0.05);">
+    <div class="card" style="margin-bottom:12px; padding:12px; border:1px solid #eee;">
       <h3 style="margin-top:0;">Vue par secteur</h3>
-      <table class="mini-table">
+      <table border="1" cellpadding="6" cellspacing="0" style="max-width:100%; overflow-x:auto;">
         <thead>
           <tr>
             <th>Secteur</th>
             <th>Sessions</th>
             <th>Présences</th>
             <th>Uniques</th>
-            <th>Heures</th>
-            <th style="width:30%;">Dyn.</th>
+            <th>Heures anim.</th>
+            <th>Heures part.</th>
           </tr>
         </thead>
         <tbody>
           {% for r in stats.sectors_summary %}
-            {% set pct = (r.presences / max_pres * 100) if max_pres > 0 else 0 %}
             <tr>
-              <td><strong>{{ r.secteur }}</strong></td>
+              <td>{{ r.secteur }}</td>
               <td>{{ r.sessions }}</td>
               <td>{{ r.presences }}</td>
               <td>{{ r.uniques }}</td>
-              <td>{{ r.hours_animator }}h / {{ r.hours_people }}h</td>
-              <td>
-                <div class="progress-shell">
-                  <div class="progress-bar" style="width: {{ pct|round(0) }}%; background:linear-gradient(90deg,#0f62fe,#33b1ff);"></div>
-                </div>
-              </td>
+              <td>{{ r.hours_animator }}</td>
+              <td>{{ r.hours_people }}</td>
             </tr>
           {% endfor %}
         </tbody>
