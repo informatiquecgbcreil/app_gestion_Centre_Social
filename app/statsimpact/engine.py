@@ -511,6 +511,19 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
                 "hours_animator": round(float(obj["hours_animator"]), 2),
                 "hours_people": round(float(obj["hours_people"]), 2),
                 "is_new_vs_previous": bool(previous_atelier_ids is not None and aid not in previous_atelier_ids),
+                "sessions_planned": int(obj["sessions_planned"]),
+                "sessions_real": int(obj["sessions_real"]),
+                "planned_capacity": int(obj["planned_capacity"]),
+                "real_capacity": int(obj["real_capacity"]),
+                "planned_hours": round(float(obj["planned_hours"]), 2),
+                "real_hours": round(float(obj["real_hours"]), 2),
+                "occupation_rate": round(
+                    (int(obj["presences"]) / obj["real_capacity"] * 100.0) if obj["real_capacity"] else 0.0, 1
+                ),
+                "avg_per_session_real": round(
+                    (int(obj["presences"]) / obj["sessions_real"]) if obj["sessions_real"] else 0.0, 2
+                ),
+                "activity_duration_days": activity_days,
             }
         )
     table_ateliers.sort(key=lambda r: (r["presences"], r["sessions"]), reverse=True)
@@ -548,6 +561,10 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
     ]
     sectors_summary.sort(key=lambda r: (r["presences"], r["sessions"]), reverse=True)
 
+    base_by_secteur: Dict[str, List[Dict[str, Any]]] = {}
+    for row in table_ateliers:
+        base_by_secteur.setdefault(row["secteur"] or "(Non renseigné)", []).append(row)
+
     return {
         "kpi": {
             "sessions": sessions_count,
@@ -565,6 +582,7 @@ def compute_volume_activity_stats(flt: StatsFilters) -> Dict[str, Any]:
         "top_ateliers": top_ateliers,
         "sectors_summary": sectors_summary,
         "has_previous_period": previous_atelier_ids is not None,
+        "base_by_secteur": base_by_secteur,
     }
 
 
