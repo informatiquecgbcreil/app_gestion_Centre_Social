@@ -111,6 +111,7 @@ def dashboard():
     trans = compute_transversalite_stats(flt)
     demo = compute_demography_stats(flt)
     occupancy = compute_occupancy_stats(flt)
+    participants = compute_participants_stats(flt)
 
     secteurs = []
     if getattr(current_user, "role", None) in ("finance", "financiere", "financière", "directrice", "admin_tech"):
