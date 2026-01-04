@@ -1,6 +1,51 @@
 {% extends "layout.html" %}
 
 {% block body %}
+<style>
+  .dash-hero {
+    background: linear-gradient(135deg, #0f62fe, #6c5ce7);
+    color: #fff;
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  }
+  .dash-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .kpi-card {
+    padding: 14px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 6px 16px rgba(15,98,254,0.08);
+    border: 1px solid #e5e8ff;
+  }
+  .kpi-label { color: #4a4a4a; font-size: 13px; margin-bottom: 4px; }
+  .kpi-value { font-size: 22px; font-weight: 700; color: #111; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.16);
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .progress-shell {
+    width: 100%; height: 8px; background: #eef2ff; border-radius: 6px; overflow: hidden;
+  }
+  .progress-bar {
+    height: 8px; border-radius: 6px;
+    background: linear-gradient(90deg, #0f62fe, #6c5ce7);
+  }
+  .tag-soft { padding: 2px 8px; border-radius: 10px; background: #eef2ff; font-size: 12px; color: #3b3b3b; }
+  .mini-table { border-collapse: collapse; width: 100%; }
+  .mini-table th, .mini-table td { border-bottom: 1px solid #f0f0f0; padding: 6px 4px; text-align: left; }
+</style>
+
 <h1>Stats & Impacts</h1>
 
 <form method="get" style="margin-bottom: 16px;">
@@ -54,35 +99,89 @@
   </div>
 </form>
 
-<hr>
+<div class="dash-hero">
+  <div style="display:flex; flex-wrap:wrap; gap:14px; align-items:center; justify-content:space-between;">
+    <div>
+      <div class="pill">Vue dynamique</div>
+      <h2 style="margin:6px 0 4px 0; font-size:26px;">Impact global sur la période</h2>
+      <p style="margin:0; opacity:0.9;">Sessions, présences, fidélisation et démographie en un coup d’œil.</p>
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <div class="pill" style="background:rgba(255,255,255,0.24);">Sessions : {{ stats.kpi.sessions }}</div>
+      <div class="pill" style="background:rgba(255,255,255,0.24);">Présences : {{ stats.kpi.presences }}</div>
+      <div class="pill" style="background:rgba(255,255,255,0.24);">Uniques : {{ stats.kpi.uniques }}</div>
+    </div>
+  </div>
+</div>
 
-<h2>KPI</h2>
-<ul>
-  <li><b>Sessions</b> : {{ stats.kpi.sessions }}</li>
-  <li><b>Présences</b> : {{ stats.kpi.presences }}</li>
-  <li><b>Participants uniques</b> : {{ stats.kpi.uniques }}</li>
-  <li><b>Nouveaux participants</b> : {{ stats.kpi.new_participants }}</li>
-  <li><b>Moyenne / session</b> : {{ stats.kpi.avg_per_session }}</li>
-  <li><b>Heures animateur</b> : {{ stats.kpi.hours_animator }}</li>
-  <li><b>Heures participants</b> : {{ stats.kpi.hours_people }}</li>
-</ul>
+<div class="dash-grid" style="margin-bottom:14px;">
+  <div class="kpi-card">
+    <div class="kpi-label">Sessions</div>
+    <div class="kpi-value">{{ stats.kpi.sessions }}</div>
+    <div class="progress-shell" style="margin-top:8px;">
+      <div class="progress-bar" style="width:100%;"></div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Présences</div>
+    <div class="kpi-value">{{ stats.kpi.presences }}</div>
+    <div class="progress-shell" style="margin-top:8px;">
+      <div class="progress-bar" style="width:100%; background:linear-gradient(90deg,#ff6f61,#ff9f7f);"></div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Participants uniques</div>
+    <div class="kpi-value">{{ stats.kpi.uniques }}</div>
+    <div class="progress-shell" style="margin-top:8px;">
+      <div class="progress-bar" style="width:100%; background:linear-gradient(90deg,#34c759,#78e08f);"></div>
+    </div>
+    <div style="font-size:12px; color:#666; margin-top:6px;">Nouveaux : {{ stats.kpi.new_participants }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Moyenne / session</div>
+    <div class="kpi-value">{{ stats.kpi.avg_per_session }}</div>
+    <div style="font-size:12px; color:#666; margin-top:6px;">Heures anim. : {{ stats.kpi.hours_animator }} — Heures part. : {{ stats.kpi.hours_people }}</div>
+  </div>
+</div>
 
-<hr>
+<div class="kpi-card" style="margin-bottom:14px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+    <div style="font-weight:700;">Participation & fidélisation</div>
+    <span class="tag-soft">Fréquence moyenne : {{ freq.freq_avg }}</span>
+  </div>
+  <div class="dash-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+    <div>
+      <div class="kpi-label">Taux de retour (≥2)</div>
+      <div class="kpi-value">{{ freq.returning_rate }}%</div>
+    </div>
+    <div>
+      <div class="kpi-label">Réguliers (≥4)</div>
+      <div class="kpi-value">{{ freq.regulars_4plus }}</div>
+    </div>
+  </div>
+  <div style="margin-top:10px;">
+    {% set total_bucket = freq.buckets["1"] + freq.buckets["2-3"] + freq.buckets["4-6"] + freq.buckets["7+"] %}
+    {% set max_bucket = [freq.buckets["1"], freq.buckets["2-3"], freq.buckets["4-6"], freq.buckets["7+"]]|max %}
+    <table class="mini-table">
+      <thead><tr><th>Tranche de venues</th><th>Volume</th><th style="width:40%;">Répartition</th></tr></thead>
+      <tbody>
+        {% for label in ["1","2-3","4-6","7+"] %}
+          {% set val = freq.buckets[label] %}
+          <tr>
+            <td>{{ label }}</td>
+            <td><strong>{{ val }}</strong></td>
+            <td>
+              <div class="progress-shell">
+                <div class="progress-bar" style="width: {% if max_bucket > 0 %}{{ (val / max_bucket * 100)|round(0) }}{% else %}0{% endif %}%; background:linear-gradient(90deg,#ff9f0a,#ffcc80);"></div>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 
-<h2>Participation & fidélisation</h2>
-<ul>
-  <li><b>Fréquence moyenne</b> : {{ freq.freq_avg }}</li>
-  <li><b>Taux de retour (≥2)</b> : {{ freq.returning_rate }}%</li>
-  <li><b>Réguliers (≥4)</b> : {{ freq.regulars_4plus }}</li>
-</ul>
-<ul>
-  <li>1 venue : {{ freq.buckets["1"] }}</li>
-  <li>2–3 venues : {{ freq.buckets["2-3"] }}</li>
-  <li>4–6 venues : {{ freq.buckets["4-6"] }}</li>
-  <li>7+ venues : {{ freq.buckets["7+"] }}</li>
-</ul>
-
-<hr>
 {% include "statsimpact/_occupancy_block.html" %}
 
 <h2>Transversalité</h2>
@@ -98,42 +197,124 @@
 
 <hr>
 
-<h2>Démographie</h2>
-<p><b>Âge moyen</b> : {% if demo.age_avg is not none %}{{ demo.age_avg }}{% else %}N/A{% endif %}</p>
-<p><b>Creil</b> : {{ demo.creil.creil }} — <b>Hors Creil</b> : {{ demo.creil.hors_creil }}</p>
-<p><b>QPV</b> : {{ demo.qpv.qpv }} — <b>Hors QPV</b> : {{ demo.qpv.hors_qpv }} — <b>Inconnu</b> : {{ demo.qpv.inconnu }}</p>
-
-<h3>Tranches d'âge</h3>
-<ul>
-{% for k,v in demo.age_buckets.items() %}
-  <li>{{ k }} : {{ v }}</li>
-{% endfor %}
-</ul>
-
-<h3>Genre</h3>
-<ul>
-{% for k,v in demo.genre.items() %}
-  <li>{{ k }} : {{ v }}</li>
-{% endfor %}
-</ul>
-
-<h3>Type public</h3>
-<ul>
-{% for k,v in demo.type_public.items() %}
-  <li>{{ k }} : {{ v }}</li>
-{% endfor %}
-</ul>
-
-<h3>Villes (Top 10)</h3>
-<ul>
-{% for row in demo.villes_top %}
-  <li>{{ row.ville }} : {{ row.count }}</li>
-{% endfor %}
-</ul>
-
-<hr>
+<div class="kpi-card" style="margin-bottom:16px;">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+    <h2 style="margin:0;">Démographie</h2>
+    <span class="tag-soft">Âge moyen : {% if demo.age_avg is not none %}{{ demo.age_avg }}{% else %}N/A{% endif %}</span>
+  </div>
+  <div class="dash-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+    <div>
+      <div class="kpi-label">Origine géographique</div>
+      <div class="kpi-value" style="font-size:16px;">Creil {{ demo.creil.creil }} / Hors {{ demo.creil.hors_creil }}</div>
+    </div>
+    <div>
+      <div class="kpi-label">QPV</div>
+      <div class="kpi-value" style="font-size:16px;">{{ demo.qpv.qpv }} QPV — {{ demo.qpv.hors_qpv }} hors — {{ demo.qpv.inconnu }} inc.</div>
+    </div>
+  </div>
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:10px;">
+    <div>
+      <div class="kpi-label">Tranches d'âge</div>
+      <table class="mini-table">
+        {% for k,v in demo.age_buckets.items() %}
+          <tr><td>{{ k }}</td><td style="text-align:right;"><strong>{{ v }}</strong></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div>
+      <div class="kpi-label">Genre</div>
+      <table class="mini-table">
+        {% for k,v in demo.genre.items() %}
+          <tr><td>{{ k }}</td><td style="text-align:right;"><strong>{{ v }}</strong></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div>
+      <div class="kpi-label">Type public</div>
+      <table class="mini-table">
+        {% for k,v in demo.type_public.items() %}
+          <tr><td>{{ k }}</td><td style="text-align:right;"><strong>{{ v }}</strong></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div>
+      <div class="kpi-label">Villes (Top 10)</div>
+      <table class="mini-table">
+        {% for row in demo.villes_top %}
+          <tr><td>{{ row.ville }}</td><td style="text-align:right;"><strong>{{ row.count }}</strong></td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
 
 <h2>Ateliers</h2>
+{% if stats.table_ateliers|length > 0 %}
+  {% if stats.top_ateliers %}
+    <div class="card" style="margin-bottom:12px; padding:12px; background:linear-gradient(135deg,#fdfbfb,#ebedee); border:1px solid #e6e6e6; box-shadow:0 10px 20px rgba(0,0,0,0.04);">
+      <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;">
+        <div style="font-weight:700; font-size:18px;">Top 3 ateliers</div>
+        {% for r in stats.top_ateliers %}
+          <div style="padding:10px 12px; border-radius:10px; background:#fff; border:1px solid #d6e9ff; display:flex; flex-direction:column; gap:6px; min-width:240px; box-shadow:0 6px 16px rgba(0,0,0,0.06);">
+            <div style="display:flex; align-items:center; gap:8px; font-weight:bold; color:#0f62fe;">
+              <span>{{ loop.index }}.</span>
+              <span>{{ r.secteur }} — {{ r.nom }}</span>
+              {% if stats.has_previous_period and r.is_new_vs_previous %}
+                <span style="background:#d1fadf; color:#0f5132; padding:2px 6px; border-radius:10px; font-size:12px; border:1px solid #9be2b0;">New</span>
+              {% endif %}
+            </div>
+            <div style="display:flex; gap:12px; font-size:14px; color:#333;">
+              <span>Sessions : <strong>{{ r.sessions }}</strong></span>
+              <span>Présences : <strong>{{ r.presences }}</strong></span>
+              <span>Uniques : <strong>{{ r.uniques }}</strong></span>
+            </div>
+            {% set max_tp = [r.presences, r.sessions, r.uniques]|max %}
+            {% set denom = max_tp if max_tp > 0 else 1 %}
+            <div class="progress-shell">
+              <div class="progress-bar" style="width: {{ (r.presences/denom*100)|round(0) }}%;"></div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if stats.sectors_summary and stats.sectors_summary|length > 0 %}
+    {% set max_pres = (stats.sectors_summary|max(attribute='presences')).presences if stats.sectors_summary else 0 %}
+    <div class="card" style="margin-bottom:12px; padding:12px; border:1px solid #eee; box-shadow:0 6px 16px rgba(0,0,0,0.05);">
+      <h3 style="margin-top:0;">Vue par secteur</h3>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th>Secteur</th>
+            <th>Sessions</th>
+            <th>Présences</th>
+            <th>Uniques</th>
+            <th>Heures</th>
+            <th style="width:30%;">Dyn.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in stats.sectors_summary %}
+            {% set pct = (r.presences / max_pres * 100) if max_pres > 0 else 0 %}
+            <tr>
+              <td><strong>{{ r.secteur }}</strong></td>
+              <td>{{ r.sessions }}</td>
+              <td>{{ r.presences }}</td>
+              <td>{{ r.uniques }}</td>
+              <td>{{ r.hours_animator }}h / {{ r.hours_people }}h</td>
+              <td>
+                <div class="progress-shell">
+                  <div class="progress-bar" style="width: {{ pct|round(0) }}%; background:linear-gradient(90deg,#0f62fe,#33b1ff);"></div>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
 <table border="1" cellpadding="6" cellspacing="0" style="max-width:100%; overflow-x:auto;">
   <thead>
     <tr>
@@ -158,6 +339,22 @@
       <td>{{ r.hours_people }}</td>
     </tr>
     {% endfor %}
+    {% if stats.table_ateliers|length == 0 %}
+      <tr>
+        <td colspan="7" style="text-align:center; padding:16px;">
+          Aucun atelier dans cette période ou ce filtre.
+          <div style="margin-top:8px;">
+            <a href="{{ url_for('ateliers.list_ateliers') }}" style="text-decoration:none; color:#0d6efd;">➡️ Voir la liste des ateliers</a>
+          </div>
+        </td>
+      </tr>
+    {% endif %}
   </tbody>
 </table>
+{% else %}
+  <div class="card" style="padding:16px; border:1px solid #eee;">
+    <p style="margin:0;">Aucun atelier dans cette période ou ce filtre.</p>
+    <p style="margin:8px 0 0 0;"><a href="{{ url_for('ateliers.list_ateliers') }}">➡️ Voir la liste des ateliers</a></p>
+  </div>
+{% endif %}
 {% endblock %}
